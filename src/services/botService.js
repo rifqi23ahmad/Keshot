@@ -150,12 +150,15 @@ async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit =
   }
 }
 
-async function handleToday(server, userId, chatId) {
+async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = null) {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
+
+  const limit = 10;
+  const offset = (page - 1) * limit;
 
   const { data: transactions, error } = await supabase
     .from('transactions')
@@ -163,70 +166,101 @@ async function handleToday(server, userId, chatId) {
     .eq('user_id', userId)
     .gte('created_at', startOfDay.toISOString())
     .lte('created_at', endOfDay.toISOString())
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit);
 
   if (error) {
     server.log.error(error, 'handleToday DB error');
+    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, '❌ Gagal memuat transaksi hari ini.');
     return telegramService.sendMessage(server, chatId, '❌ Gagal memuat transaksi hari ini.');
   }
 
   if (!transactions || transactions.length === 0) {
-    return telegramService.sendMessage(server, chatId, 'Belum ada transaksi hari ini.');
+    const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada transaksi hari ini.';
+    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg, { inline_keyboard: MAIN_MENU });
+    return telegramService.sendMessage(server, chatId, msg, { inline_keyboard: MAIN_MENU });
   }
 
-  let text = `📅 <b>Transaksi Hari Ini</b>\n\n`;
-  transactions.forEach((t, index) => {
+  const hasNextPage = transactions.length > limit;
+  const displayTransactions = transactions.slice(0, limit);
+
+  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n\n`;
+  displayTransactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '🟢' : '🔴';
-    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
+    const num = offset + index + 1;
+    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
     const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
     text += `     └ 📝 ${label}\n\n`;
   });
 
-  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
+  const inlineKeyboard = [];
+  const navigationRow = [];
+  
+  if (page > 1) navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `today_${page - 1}` });
+  if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `today_${page + 1}` });
+
+  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
+  inlineKeyboard.push(...MAIN_MENU);
+
+  const replyMarkup = { inline_keyboard: inlineKeyboard };
+
+  if (messageIdToEdit) await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
+  else await telegramService.sendMessage(server, chatId, text, replyMarkup);
 }
 
-async function handleDelete(server, userId, chatId, messageIdToEdit = null) {
-  // Always show interactive keyboard for the last 10 transactions
+async function handleDelete(server, userId, chatId, messageIdToEdit = null, page = 1) {
+  const limit = 10;
+  const offset = (page - 1) * limit;
+
   const { data: transactions, error } = await supabase
     .from('transactions')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(10);
+    .range(offset, offset + limit);
 
   if (error || !transactions || transactions.length === 0) {
-    const msg = 'Belum ada data transaksi yang bisa dihapus.';
+    const msg = page > 1 ? 'Tidak ada transaksi lagi di halaman ini.' : 'Belum ada data transaksi yang bisa dihapus.';
     if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg, { inline_keyboard: MAIN_MENU });
     return telegramService.sendMessage(server, chatId, msg, { inline_keyboard: MAIN_MENU });
   }
+
+  const hasNextPage = transactions.length > limit;
+  const displayTransactions = transactions.slice(0, limit);
 
   if (!multiDeleteState.has(userId)) {
     multiDeleteState.set(userId, new Set());
   }
   const selected = multiDeleteState.get(userId);
 
-  let text = '<b>Pilih transaksi yang ingin dihapus:</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n';
+  let text = `<b>Pilih transaksi yang ingin dihapus (Hal ${page}):</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n`;
   const row1 = [];
   const row2 = [];
 
-  transactions.forEach((t, index) => {
+  displayTransactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '🟢' : '🔴';
-    const num = index + 1;
+    const num = offset + index + 1;
     text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
     const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
     text += `     └ 📝 ${label}\n\n`;
 
     const isChecked = selected.has(t.id);
     const checkBox = isChecked ? '✅' : '⬜️';
-    const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}` };
+    // Use offset index in the grid button to match the text
+    const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}_pg${page}` };
     
-    if (num <= 5) row1.push(btn);
+    if (index < 5) row1.push(btn);
     else row2.push(btn);
   });
 
   const inlineKeyboard = [];
   if (row1.length > 0) inlineKeyboard.push(row1);
   if (row2.length > 0) inlineKeyboard.push(row2);
+
+  const navigationRow = [];
+  if (page > 1) navigationRow.push({ text: '⬅️ Sebelumnnya', callback_data: `delpg_${page - 1}` });
+  if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `delpg_${page + 1}` });
+  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
 
   const actionRow = [];
   if (selected.size > 0) actionRow.push({ text: `🗑 Hapus (${selected.size})`, callback_data: 'mdel_confirm' });
@@ -247,7 +281,10 @@ async function processCallbackQuery(server, callbackQuery) {
   const messageId = callbackQuery.message.message_id;
 
   if (data && data.startsWith('addel_')) {
-    const transactionId = data.substring(6);
+    const parts = data.split('_');
+    const transactionId = parts[1];
+    const pageStr = parts[2] ? parts[2].replace('pg', '') : '1';
+    const page = parseInt(pageStr, 10) || 1;
     
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
@@ -260,7 +297,7 @@ async function processCallbackQuery(server, callbackQuery) {
 
     // Silent ack to fast-update UI
     await telegramService.answerCallbackQuery(server, callbackQuery.id, '');
-    await handleDelete(server, user.id, chatId, messageId);
+    await handleDelete(server, user.id, chatId, messageId, page);
 
   } else if (data === 'mdel_confirm') {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
@@ -294,14 +331,30 @@ async function processCallbackQuery(server, callbackQuery) {
     await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
 
+  } else if (data && data.startsWith('delpg_')) {
+    const page = parseInt(data.replace('delpg_', ''), 10);
+    if (!isNaN(page) && page > 0) {
+      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+      await handleDelete(server, user.id, chatId, messageId, page);
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
+    }
+
   } else if (data && data.startsWith('hist_')) {
     const page = parseInt(data.replace('hist_', ''), 10);
     if (!isNaN(page) && page > 0) {
-      // Auth validation
       const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
       if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-      
       await handleHistory(server, user.id, chatId, page, messageId);
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
+    }
+
+  } else if (data && data.startsWith('today_')) {
+    const page = parseInt(data.replace('today_', ''), 10);
+    if (!isNaN(page) && page > 0) {
+      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+      await handleToday(server, user.id, chatId, page, messageId);
       await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
     }
   } else if (data && data.startsWith('cmd_')) {
