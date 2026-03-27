@@ -34,6 +34,47 @@ async function start() {
     
     server.log.info(`Server is running securely on port ${port}`);
 
+    // ── Webhook startup check ─────────────────────────────────────────────
+    // Hit Telegram's getWebhookInfo to confirm webhook is correctly registered.
+    // A 200 response with the correct URL here means Telegram can reach us.
+    try {
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      const infoUrl = `https://api.telegram.org/bot${token}/getWebhookInfo`;
+      const https = require('https');
+
+      const webhookInfo = await new Promise((resolve, reject) => {
+        https.get(infoUrl, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            server.log.info(`[WEBHOOK CHECK] Telegram API HTTP status: ${res.statusCode}`);
+            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+      });
+
+      if (webhookInfo.ok) {
+        const info = webhookInfo.result;
+        server.log.info(`[WEBHOOK CHECK] ✅ url: ${info.url}`);
+        server.log.info(`[WEBHOOK CHECK] pending_update_count: ${info.pending_update_count}`);
+        server.log.info(`[WEBHOOK CHECK] has_custom_certificate: ${info.has_custom_certificate}`);
+        if (info.last_error_message) {
+          server.log.warn(`[WEBHOOK CHECK] ⚠️  last_error_message: ${info.last_error_message}`);
+          server.log.warn(`[WEBHOOK CHECK] last_error_date: ${new Date(info.last_error_date * 1000).toISOString()}`);
+        } else {
+          server.log.info('[WEBHOOK CHECK] No error reported by Telegram 🎉');
+        }
+        if (!info.url) {
+          server.log.warn('[WEBHOOK CHECK] ⚠️  Webhook URL is EMPTY — bot will not receive updates!');
+        }
+      } else {
+        server.log.error(`[WEBHOOK CHECK] ❌ Telegram responded not-ok: ${JSON.stringify(webhookInfo)}`);
+      }
+    } catch (webhookCheckErr) {
+      server.log.error(webhookCheckErr, '[WEBHOOK CHECK] Failed to call getWebhookInfo');
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // Graceful Shutdown configurations
     const gracefulShutdown = async (signal) => {
       server.log.info(`Received ${signal}, shutting down gracefully...`);
