@@ -36,17 +36,35 @@ async function checkMustJoin(server, userId, chatId) {
       }
     }
 
-    // Not a member
-    const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; // Configure this in env
-    const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
-    const keyboard = [[{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }]];
+     // Not a member
+     const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; // Configure this in env
+     const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
+     const keyboard = [
+       [{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }],
+       [{ text: '🔄 Saya Sudah Join', callback_data: 'cmd_check_join' }]
+     ];
 
-    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
-    return false;
+     await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
+     return false;
 
   } catch (e) {
-    server.log.error(e, 'Failed to check chat member');
-    return true; // Fail open to not block users blindly
+     server.log.error(e, 'Failed to check chat member');
+     return true; // Fail open to not block users blindly
+  }
+}
+
+async function handleNewGroupMember(server, message) {
+  const newMembers = message.new_chat_members;
+  if (!newMembers) return;
+
+  for (const member of newMembers) {
+    if (member.is_bot) continue;
+    
+    const botUsername = process.env.BOT_USERNAME || 'KeshotBot'; // Fallback username
+    const text = `Halo <a href="tg://user?id=${member.id}">${member.first_name}</a>! 👋\nTerima kasih sudah bergabung di grup Keshot Feedback.\n\nSilakan klik tombol di bawah ini untuk kembali ke Bot Keshot dan melanjutkan pencatatan keuangan Anda.`;
+    const keyboard = [[{ text: '🤖 Kembali ke Bot Keshot', url: `https://t.me/${botUsername}` }]];
+
+    await telegramService.sendMessage(server, message.chat.id, text, { inline_keyboard: keyboard });
   }
 }
 
@@ -370,7 +388,17 @@ async function processCallbackQuery(server, callbackQuery) {
 
   const isMember = await checkMustJoin(server, callbackQuery.from.id, chatId);
   if (!isMember) {
+    if (data === 'cmd_check_join') {
+      return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda belum bergabung dengan grup, silakan join terlebih dahulu.', { show_alert: true });
+    }
     return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda harus join grup terlebih dahulu!', { show_alert: true });
+  }
+
+  // Jika sudah join dan mengklik tombol 'Cek Status Join'
+  if (data === 'cmd_check_join') {
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Berhasil memverifikasi! Selamat datang kembali.');
+    await telegramService.sendMessage(server, chatId, '✅ Verifikasi berhasil! Bot Keshot kini bisa Anda gunakan.');
+    return handleStart(server, chatId, callbackQuery.from.first_name || 'User');
   }
 
   if (data && data.startsWith('addel_')) {
@@ -512,5 +540,6 @@ async function handleTransaction(server, userId, chatId, text) {
 
 module.exports = {
   processTextMessage,
-  processCallbackQuery
+  processCallbackQuery,
+  handleNewGroupMember
 };

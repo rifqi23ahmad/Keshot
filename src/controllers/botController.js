@@ -45,9 +45,17 @@ async function handleUpdate(server, body) {
     return;
   }
 
-  // Ignore group messages for privacy
+  // Ignore group messages for privacy, EXCEPT for welcoming new members back to the bot
   if (body.message.chat.type !== 'private') {
-    server.log.debug('Ignored message from non-private chat.');
+    if (body.message.new_chat_members) {
+      try {
+        await botService.handleNewGroupMember(server, body.message);
+      } catch (err) {
+        server.log.error(err, 'Failed to handle welcome message in group');
+      }
+    } else {
+      server.log.debug('Ignored message from non-private chat.');
+    }
     return;
   }
 
