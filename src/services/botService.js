@@ -86,32 +86,62 @@ async function handleSummary(server, userId, chatId) {
   await telegramService.sendMessage(server, chatId, text);
 }
 
-async function handleHistory(server, userId, chatId) {
+async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit = null) {
+  const limit = 10;
+  const offset = (page - 1) * limit;
+
   const { data: transactions, error } = await supabase
     .from('transactions')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(10);
+    .range(offset, offset + limit); // request 11 items to check if there is a next page
 
   if (error) {
     server.log.error(error, 'handleHistory DB error');
+    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, '❌ Gagal memuat histori.');
     return telegramService.sendMessage(server, chatId, '❌ Gagal memuat histori.');
   }
 
   if (!transactions || transactions.length === 0) {
-    return telegramService.sendMessage(server, chatId, 'Belum ada data transaksi.');
+    const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada data transaksi.';
+    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg);
+    return telegramService.sendMessage(server, chatId, msg);
   }
 
-  let text = `📜 <b>10 Transaksi Terakhir</b>\n\n`;
-  transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '➕' : '➖';
-    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
-    if (t.note) text += `   📝 <i>${t.note}</i>\n\n`;
-    else text += `\n`;
+  const hasNextPage = transactions.length > limit;
+  const displayTransactions = transactions.slice(0, limit);
+
+  let text = `📜 <b>Histori Transaksi (Hal ${page})</b>\n\n`;
+  displayTransactions.forEach((t, index) => {
+    const symbol = t.type === 'income' ? '🟢' : '🔴';
+    const num = offset + index + 1;
+    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
+    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
+    text += `     └ 📝 ${label}\n\n`;
   });
 
-  await telegramService.sendMessage(server, chatId, text);
+  const inlineKeyboard = [];
+  const navigationRow = [];
+  
+  if (page > 1) {
+    navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `hist_${page - 1}` });
+  }
+  if (hasNextPage) {
+    navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `hist_${page + 1}` });
+  }
+
+  if (navigationRow.length > 0) {
+    inlineKeyboard.push(navigationRow);
+  }
+
+  const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : null;
+
+  if (messageIdToEdit) {
+    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
+  } else {
+    await telegramService.sendMessage(server, chatId, text, replyMarkup);
+  }
 }
 
 async function handleToday(server, userId, chatId) {
@@ -140,10 +170,10 @@ async function handleToday(server, userId, chatId) {
 
   let text = `📅 <b>Transaksi Hari Ini</b>\n\n`;
   transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '➕' : '➖';
-    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
-    if (t.note) text += `   📝 <i>${t.note}</i>\n\n`;
-    else text += `\n`;
+    const symbol = t.type === 'income' ? '🟢' : '🔴';
+    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
+    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
+    text += `     └ 📝 ${label}\n\n`;
   });
 
   await telegramService.sendMessage(server, chatId, text);
@@ -201,6 +231,16 @@ async function processCallbackQuery(server, callbackQuery) {
     } else {
       await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Transaksi berhasil dihapus.');
       await telegramService.editMessageText(server, chatId, messageId, '✅ <i>Transaksi berhasil dihapus.</i>');
+    }
+  } else if (data && data.startsWith('hist_')) {
+    const page = parseInt(data.replace('hist_', ''), 10);
+    if (!isNaN(page) && page > 0) {
+      // Auth validation
+      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+      
+      await handleHistory(server, user.id, chatId, page, messageId);
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
     }
   }
 }
