@@ -7,6 +7,9 @@ const MAIN_MENU = [
   [ { text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' } ]
 ];
 
+// Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
+const multiDeleteState = new Map();
+
 async function processTextMessage(server, message) {
   const telegramId = message.from.id.toString();
   const chatId = message.chat.id;
@@ -38,7 +41,8 @@ async function processTextMessage(server, message) {
   } else if (text === '/today') {
     return handleToday(server, user.id, chatId);
   } else if (text.startsWith('/delete')) {
-    return handleDelete(server, user.id, chatId, text);
+    multiDeleteState.delete(user.id);
+    return handleDelete(server, user.id, chatId);
   }
 
   // If not a command, try to parse as transaction
@@ -181,7 +185,7 @@ async function handleToday(server, userId, chatId) {
   await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
-async function handleDelete(server, userId, chatId, text) {
+async function handleDelete(server, userId, chatId, messageIdToEdit = null) {
   // Always show interactive keyboard for the last 10 transactions
   const { data: transactions, error } = await supabase
     .from('transactions')
@@ -191,20 +195,39 @@ async function handleDelete(server, userId, chatId, text) {
     .limit(10);
 
   if (error || !transactions || transactions.length === 0) {
-    return telegramService.sendMessage(server, chatId, 'Belum ada data transaksi yang bisa dihapus.');
+    const msg = 'Belum ada data transaksi yang bisa dihapus.';
+    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg, { inline_keyboard: MAIN_MENU });
+    return telegramService.sendMessage(server, chatId, msg, { inline_keyboard: MAIN_MENU });
   }
+
+  if (!multiDeleteState.has(userId)) {
+    multiDeleteState.set(userId, new Set());
+  }
+  const selected = multiDeleteState.get(userId);
 
   const inlineKeyboard = transactions.map(t => {
     const symbol = t.type === 'income' ? '➕' : '➖';
     const noteText = t.note ? t.note : t.category;
-    const label = `${symbol} Rp${t.amount.toLocaleString('id-ID')} | ${noteText}`;
-    return [{ text: label, callback_data: `del_${t.id}` }];
+    const isChecked = selected.has(t.id);
+    const checkBox = isChecked ? '✅' : '⬜️';
+    const label = `${checkBox} ${symbol} Rp${t.amount.toLocaleString('id-ID')} | ${noteText}`;
+    
+    // callback_data strict length limit is 64 bytes.
+    return [{ text: label, callback_data: `addel_${t.id}` }];
   });
-  inlineKeyboard.push(...MAIN_MENU);
 
-  await telegramService.sendMessage(server, chatId, 'Pilih transaksi yang ingin dihapus:', {
-    inline_keyboard: inlineKeyboard
-  });
+  const actionRow = [];
+  if (selected.size > 0) actionRow.push({ text: `🗑 Hapus (${selected.size})`, callback_data: 'mdel_confirm' });
+  actionRow.push({ text: '❌ Batal', callback_data: 'mdel_cancel' });
+  inlineKeyboard.push(actionRow);
+
+  const text = '<b>Pilih transaksi yang ingin dihapus:</b>\n<i>Anda bisa memilih beberapa sekaligus.</i>';
+
+  if (messageIdToEdit) {
+    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, { inline_keyboard: inlineKeyboard });
+  } else {
+    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: inlineKeyboard });
+  }
 }
 
 async function processCallbackQuery(server, callbackQuery) {
@@ -213,27 +236,54 @@ async function processCallbackQuery(server, callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
 
-  if (data && data.startsWith('del_')) {
-    const transactionId = data.substring(4);
+  if (data && data.startsWith('addel_')) {
+    const transactionId = data.substring(6);
     
-    // Auth validation
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
-    const { data: delData, error } = await supabase
+    if (!multiDeleteState.has(user.id)) multiDeleteState.set(user.id, new Set());
+    const selected = multiDeleteState.get(user.id);
+
+    if (selected.has(transactionId)) selected.delete(transactionId);
+    else selected.add(transactionId);
+
+    // Silent ack to fast-update UI
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, '');
+    await handleDelete(server, user.id, chatId, messageId);
+
+  } else if (data === 'mdel_confirm') {
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+
+    const selected = multiDeleteState.get(user.id);
+    if (!selected || selected.size === 0) {
+      return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Pilih minimal 1 transaksi!');
+    }
+
+    const { error } = await supabase
       .from('transactions')
       .delete()
-      .eq('id', transactionId)
-      .eq('user_id', user.id)
-      .select();
+      .in('id', Array.from(selected))
+      .eq('user_id', user.id);
 
-    if (error || !delData || delData.length === 0) {
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Transaksi tidak ditemukan / sudah dihapus.');
-      await telegramService.editMessageText(server, chatId, messageId, '❌ <i>Transaksi tidak ditemukan atau sudah dihapus.</i>');
+    if (error) {
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menghapus transaksi.');
+      await telegramService.editMessageText(server, chatId, messageId, '❌ <i>Gagal menghapus transaksi.</i>', { inline_keyboard: MAIN_MENU });
     } else {
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Transaksi berhasil dihapus.');
-      await telegramService.editMessageText(server, chatId, messageId, '✅ <i>Transaksi berhasil dihapus.</i>');
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, `✅ ${selected.size} transaksi berhasil dihapus.`);
+      await telegramService.editMessageText(server, chatId, messageId, `✅ <i>${selected.size} transaksi berhasil dihapus!</i>`, { inline_keyboard: MAIN_MENU });
     }
+
+    multiDeleteState.delete(user.id);
+
+  } else if (data === 'mdel_cancel') {
+    const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (user) multiDeleteState.delete(user.id);
+    
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
+    await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
+
   } else if (data && data.startsWith('hist_')) {
     const page = parseInt(data.replace('hist_', ''), 10);
     if (!isNaN(page) && page > 0) {
@@ -259,9 +309,8 @@ async function processCallbackQuery(server, callbackQuery) {
     } else if (data === 'cmd_history') {
       await handleHistory(server, user.id, chatId, 1, messageId); // Replace menu with history!
     } else if (data === 'cmd_delete') {
-      // Just replacing the current menu message to save space
-      await telegramService.editMessageText(server, chatId, messageId, '<i>Daftar transaksi tertutup.</i>');
-      await handleDelete(server, user.id, chatId, '/delete');
+      multiDeleteState.delete(user.id);
+      await handleDelete(server, user.id, chatId, messageId);
     }
   }
 }
