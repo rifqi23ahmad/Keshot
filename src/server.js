@@ -17,8 +17,9 @@ async function start() {
   try {
     await buildApp(server);
 
-    const port = parseInt(process.env.PORT || '3000', 10);
-    await server.listen({ port: port, host: '0.0.0.0' });
+    const port = process.env.PORT;
+    if (!port) throw new Error('PORT environment variable is not set');
+    await server.listen({ port: Number(port), host: '0.0.0.0' });
 
     server.log.info(`Server is running on port ${port}`);
 
