@@ -125,16 +125,54 @@ function updateMonthDisplay() {
     }
 }
 
+function renderHistory(data) {
+    const hIn = document.getElementById('historyIncome');
+    const hEx = document.getElementById('historyExpense');
+    if (hIn) hIn.textContent = formatRupiah(data.monthlyIncome || 0);
+    if (hEx) hEx.textContent = formatRupiah(data.monthlyExpense || 0);
+
+    const listEl = document.getElementById('fullHistoryList');
+    if (!data.transactions || data.transactions.length === 0) {
+        if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Belum ada transaksi di bulan ini.</p></div>';
+        return;
+    }
+
+    if (listEl) {
+        listEl.innerHTML = data.transactions.map(t => `
+            <div class="transaction-item">
+                <div class="t-left">
+                    <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
+                    <div class="t-info">
+                        <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
+                        <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
+                    </div>
+                </div>
+                <div class="t-amount ${t.type}">
+                    ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
 async function loadHistoryData() {
     const telegramId = tg.initDataUnsafe?.user?.id;
     if (!telegramId) return;
 
+    const month = historyDate.getMonth() + 1;
+    const year = historyDate.getFullYear();
+    const cacheKey = `hist_${telegramId}_${year}_${month}`;
     const listEl = document.getElementById('fullHistoryList');
-    if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Memuat riwayat...</p></div>';
+
+    // Optimistic UI Caching (Zero Delay)
+    const cachedStr = localStorage.getItem(cacheKey);
+    if (cachedStr) {
+        renderHistory(JSON.parse(cachedStr));
+    } else {
+        if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Mensinkronisasi riwayat...</p></div>';
+    }
 
     try {
-        const month = historyDate.getMonth() + 1;
-        const year = historyDate.getFullYear();
         const response = await fetch(`/api/history?telegramId=${telegramId}&month=${month}&year=${year}`);
         
         if (response.status === 403) {
@@ -143,36 +181,13 @@ async function loadHistoryData() {
         }
         
         const data = await response.json();
-
-        const hIn = document.getElementById('historyIncome');
-        const hEx = document.getElementById('historyExpense');
-        if (hIn) hIn.textContent = formatRupiah(data.monthlyIncome || 0);
-        if (hEx) hEx.textContent = formatRupiah(data.monthlyExpense || 0);
-
-        if (!data.transactions || data.transactions.length === 0) {
-            if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Belum ada transaksi di bulan ini.</p></div>';
-            return;
-        }
-
-        if (listEl) {
-            listEl.innerHTML = data.transactions.map(t => `
-                <div class="transaction-item">
-                    <div class="t-left">
-                        <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
-                        <div class="t-info">
-                            <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
-                            <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
-                        </div>
-                    </div>
-                    <div class="t-amount ${t.type}">
-                        ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
-                    </div>
-                </div>
-            `).join('');
-        }
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        renderHistory(data);
     } catch (e) {
         console.error(e);
-        if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Gagal memuat riwayat.</p></div>';
+        if (!localStorage.getItem(cacheKey)) {
+            if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Gagal memuat riwayat.</p></div>';
+        }
     }
 }
 
@@ -207,8 +222,45 @@ function formatRelativeTime(dateString) {
     }
 }
 
+function renderDashboard(data) {
+    document.getElementById('totalBalance').textContent = formatRupiah(data.totalBalance);
+    document.getElementById('totalIncome').textContent = formatRupiah(data.totalIncome);
+    document.getElementById('totalExpense').textContent = formatRupiah(data.totalExpense);
+
+    const transactionList = document.getElementById('transactionList');
+    
+    if (!data.recentTransactions || data.recentTransactions.length === 0) {
+        transactionList.innerHTML = '<div class="empty-state"><p>Belum ada transaksi.</p></div>';
+        return;
+    }
+
+    transactionList.innerHTML = data.recentTransactions.map(t => `
+        <div class="transaction-item">
+            <div class="t-left">
+                <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
+                <div class="t-info">
+                    <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
+                    <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
+                </div>
+            </div>
+            <div class="t-amount ${t.type}">
+                ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
+            </div>
+        </div>
+    `).join('');
+}
+
 async function fetchDashboardData(telegramId) {
+    const cacheKey = `dash_${telegramId}`;
     try {
+        // Optimistic UI Caching (Zero Delay)
+        const cachedStr = localStorage.getItem(cacheKey);
+        if (cachedStr) {
+            renderDashboard(JSON.parse(cachedStr));
+        } else {
+            document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Mensinkronisasi dengan server...</p></div>';
+        }
+
         const response = await fetch(`/api/dashboard?telegramId=${telegramId}`);
         if (response.status === 403) {
             document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>⚠️ Lho kok bisa ke sini? Anda harus join grup dulu ya!</p></div>';
@@ -217,34 +269,13 @@ async function fetchDashboardData(telegramId) {
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
 
-        document.getElementById('totalBalance').textContent = formatRupiah(data.totalBalance);
-        document.getElementById('totalIncome').textContent = formatRupiah(data.totalIncome);
-        document.getElementById('totalExpense').textContent = formatRupiah(data.totalExpense);
-
-        const transactionList = document.getElementById('transactionList');
-        
-        if (!data.recentTransactions || data.recentTransactions.length === 0) {
-            transactionList.innerHTML = '<div class="empty-state"><p>Belum ada transaksi.</p></div>';
-            return;
-        }
-
-        transactionList.innerHTML = data.recentTransactions.map(t => `
-            <div class="transaction-item">
-                <div class="t-left">
-                    <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
-                    <div class="t-info">
-                        <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
-                        <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
-                    </div>
-                </div>
-                <div class="t-amount ${t.type}">
-                    ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
-                </div>
-            </div>
-        `).join('');
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        renderDashboard(data);
 
     } catch (error) {
         console.error('Error fetching dashboard data:', error);
-        document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Gagal memuat data. Pastikan Anda sudah terdaftar di bot.</p></div>';
+        if (!localStorage.getItem(cacheKey)) {
+            document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Gagal memuat data. Pastikan Anda sudah terdaftar di bot.</p></div>';
+        }
     }
 }
