@@ -3,6 +3,7 @@ const { parseTransaction } = require('../utils/parser');
 const supabase = require('../lib/supabase');
 
 const MAIN_MENU = [
+  [ { text: '➕ Tambah', callback_data: 'cmd_add' } ],
   [ { text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' } ],
   [ { text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' } ]
 ];
@@ -201,9 +202,10 @@ async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = n
   const hasNextPage = transactions.length > limit;
   const displayTransactions = transactions.slice(0, limit);
 
-  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n`;
-  text += `🟢 Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n`;
-  text += `🔴 Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n`;
+  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n\n`;
+  text += `🟢 <b>Pemasukan:</b> Rp${totalIncome.toLocaleString('id-ID')}\n`;
+  text += `🔴 <b>Pengeluaran:</b> Rp${totalExpense.toLocaleString('id-ID')}\n`;
+  text += `━━━━━━━━━━━━━━━━━\n\n`;
   displayTransactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '🟢' : '🔴';
     const num = offset + index + 1;
@@ -393,6 +395,15 @@ async function processCallbackQuery(server, callbackQuery) {
     } else if (data === 'cmd_delete') {
       multiDeleteState.delete(user.id);
       await handleDelete(server, user.id, chatId, messageId);
+    } else if (data === 'cmd_add') {
+      const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
+                      `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
+                      `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
+                      `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
+      await telegramService.sendMessage(server, chatId, addText, {
+        force_reply: true,
+        input_field_placeholder: '+/- Nominal Keterangan'
+      });
     }
   }
 }
