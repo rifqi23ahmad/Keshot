@@ -10,6 +10,19 @@ async function buildApp(server, prisma) {
   // Decorate server with prisma to be accessible in routes/services
   server.decorate('prisma', prisma);
 
+  // ── TRACE: log every incoming request so we can see if webhook calls arrive ──
+  server.addHook('onRequest', async (request, reply) => {
+    server.log.info({
+      msg: '[TRACE] Incoming request',
+      method: request.method,
+      url: request.url,
+      ip: request.ip,
+      secretTokenPresent: !!request.headers['x-telegram-bot-api-secret-token'],
+      contentType: request.headers['content-type']
+    });
+  });
+
+
   // Global Error Handler
   server.setErrorHandler((error, request, reply) => {
     server.log.error(error);
