@@ -1,9 +1,11 @@
 {
   "name": "keshot",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npx prisma migrate deploy && node src/server.js",
+    "dev": "nodemon src/server.js | pino-pretty",
+    "setup:webhook": "node scripts/setup-webhook.js"
   },
   "keywords": [],
   "author": "",
