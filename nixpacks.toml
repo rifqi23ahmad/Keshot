@@ -2,7 +2,7 @@
 NODE_ENV = "production"
 
 [phases.build]
-cmds = ["npm ci"]
+cmds = ["npm ci", "npx prisma generate"]
 
 [start]
-cmd = "npm start"
+cmd = "npx prisma db push && node src/server.js"
