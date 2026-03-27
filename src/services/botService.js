@@ -160,6 +160,23 @@ async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = n
   const limit = 10;
   const offset = (page - 1) * limit;
 
+  // Calculate totals for today
+  const { data: allToday } = await supabase
+    .from('transactions')
+    .select('type, amount')
+    .eq('user_id', userId)
+    .gte('created_at', startOfDay.toISOString())
+    .lte('created_at', endOfDay.toISOString());
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  if (allToday) {
+    for (const t of allToday) {
+      if (t.type === 'income') totalIncome += t.amount;
+      if (t.type === 'expense') totalExpense += t.amount;
+    }
+  }
+
   const { data: transactions, error } = await supabase
     .from('transactions')
     .select('*')
@@ -184,7 +201,9 @@ async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = n
   const hasNextPage = transactions.length > limit;
   const displayTransactions = transactions.slice(0, limit);
 
-  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n\n`;
+  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n`;
+  text += `🟢 Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n`;
+  text += `🔴 Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n`;
   displayTransactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '🟢' : '🔴';
     const num = offset + index + 1;
