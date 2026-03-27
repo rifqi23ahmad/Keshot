@@ -23,9 +23,6 @@ async function webhookRoutes(server, options) {
    * Target endpoint for Telegram updates.
    */
   server.post('/webhook', { preHandler: verifySecretToken }, async (request, reply) => {
-    // 1. Instantly return 200 OK to Telegram so it doesn't retry
-    reply.code(200).send({ ok: true });
-    
     // 2. Process logic asynchronously to prevent duplicate deliveries and thread blocking
     setImmediate(async () => {
       try {
@@ -34,6 +31,9 @@ async function webhookRoutes(server, options) {
         server.log.error(err, 'Error in async background update processing');
       }
     });
+
+    // 1. Instantly return 200 OK to Telegram so it doesn't retry
+    return reply.code(200).send({ ok: true });
   });
 
 }
