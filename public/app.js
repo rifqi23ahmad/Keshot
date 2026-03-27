@@ -155,6 +155,8 @@ function renderHistory(data) {
     }
 }
 
+let currentHistoryFetchId = 0;
+
 async function loadHistoryData() {
     const telegramId = tg.initDataUnsafe?.user?.id;
     if (!telegramId) return;
@@ -164,29 +166,49 @@ async function loadHistoryData() {
     const cacheKey = `hist_${telegramId}_${year}_${month}`;
     const listEl = document.getElementById('fullHistoryList');
 
+    // Mencegah Race Condition jika user klik bulan dengan sangat cepat
+    currentHistoryFetchId++;
+    const fetchId = currentHistoryFetchId;
+
     // Optimistic UI Caching (Zero Delay)
     const cachedStr = localStorage.getItem(cacheKey);
     if (cachedStr) {
         renderHistory(JSON.parse(cachedStr));
     } else {
         if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Mensinkronisasi riwayat...</p></div>';
+        const hIn = document.getElementById('historyIncome');
+        const hEx = document.getElementById('historyExpense');
+        if (hIn) hIn.textContent = 'Menghitung...';
+        if (hEx) hEx.textContent = 'Menghitung...';
     }
 
     try {
         const response = await fetch(`/api/history?telegramId=${telegramId}&month=${month}&year=${year}`);
         
+        // PENTING: Jika pengguna sudah pindah bulan lain saat menunggu data ini
+        // Batalkan proses rendering agar tidak tertimpa data lama
+        if (fetchId !== currentHistoryFetchId) return;
+
         if (response.status === 403) {
             if (listEl) listEl.innerHTML = '<div class="empty-state"><p>⚠️ Akses ditolak. Anda belum join grup.</p></div>';
             return;
         }
         
         const data = await response.json();
+        
+        if (fetchId !== currentHistoryFetchId) return;
+
         localStorage.setItem(cacheKey, JSON.stringify(data));
         renderHistory(data);
     } catch (e) {
+        if (fetchId !== currentHistoryFetchId) return;
         console.error(e);
         if (!localStorage.getItem(cacheKey)) {
             if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Gagal memuat riwayat.</p></div>';
+            const hIn = document.getElementById('historyIncome');
+            const hEx = document.getElementById('historyExpense');
+            if (hIn) hIn.textContent = 'Rp 0';
+            if (hEx) hEx.textContent = 'Rp 0';
         }
     }
 }
