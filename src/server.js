@@ -16,22 +16,29 @@ if (Fastify.prisma) {
 Fastify.prisma = prisma; // Attach to Fastify global to avoid connection leaks
 
 async function start() {
+  // Trust Railway's upstream proxy so we don't drop connections / rate limit the proxy's IP
   const server = Fastify({
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      // Pino pretty is only required in dev, Railway standard out handles normal pino output well
-    }
+    },
+    trustProxy: true 
+  });
+
+  // Simple Health Check Endpoint for Railway Edge
+  server.get('/', async (request, reply) => {
+    return { status: 'healthy', bot: 'Keshot' };
   });
 
   try {
     // Await app building (registering plugins, routes, etc.)
     await buildApp(server, prisma);
 
-    const port = process.env.PORT || 3000;
-    // Listen on 0.0.0.0 to work properly in environments like Railway/Docker
-    await server.listen({ port, host: '0.0.0.0' });
+    // Cast port definitively to Number to avoid node bind errors
+    const port = parseInt(process.env.PORT || '3000', 10);
+    // Listen on IPv4 and IPv6 (0.0.0.0 inside a container resolves properly, but Railway sometimes prefers generic bindings)
+    await server.listen({ port: port, host: '0.0.0.0' });
     
-    server.log.info(`Server is running on port ${port}`);
+    server.log.info(`Server is running securely on port ${port}`);
 
     // Graceful Shutdown configurations
     const gracefulShutdown = async (signal) => {
