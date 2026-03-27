@@ -106,9 +106,9 @@ async function handleHistory(server, userId, chatId) {
   let text = `📜 <b>10 Transaksi Terakhir</b>\n\n`;
   transactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '➕' : '➖';
-    text += `${index + 1}. ${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
-    if (t.note) text += `   📝 ${t.note}\n`;
-    text += `   🆔 <code>${t.id}</code>\n\n`;
+    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
+    if (t.note) text += `   📝 <i>${t.note}</i>\n\n`;
+    else text += `\n`;
   });
 
   await telegramService.sendMessage(server, chatId, text);
@@ -139,41 +139,73 @@ async function handleToday(server, userId, chatId) {
   }
 
   let text = `📅 <b>Transaksi Hari Ini</b>\n\n`;
-  transactions.forEach(t => {
+  transactions.forEach((t, index) => {
     const symbol = t.type === 'income' ? '➕' : '➖';
-    text += `${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
-    if (t.note) text += `   📝 ${t.note}\n`;
+    text += `<b>${index + 1}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')} (${t.category})\n`;
+    if (t.note) text += `   📝 <i>${t.note}</i>\n\n`;
+    else text += `\n`;
   });
 
   await telegramService.sendMessage(server, chatId, text);
 }
 
 async function handleDelete(server, userId, chatId, text) {
-  const parts = text.split(' ');
-  if (parts.length < 2) {
-    return telegramService.sendMessage(server, chatId, '❌ Format salah. Gunakan: <code>/delete &lt;id_transaksi&gt;</code>');
-  }
-
-  const transactionId = parts[1].trim();
-  
-  const { data, error } = await supabase
+  // Always show interactive keyboard for the last 10 transactions
+  const { data: transactions, error } = await supabase
     .from('transactions')
-    .delete()
-    .eq('id', transactionId)
+    .select('*')
     .eq('user_id', userId)
-    .select();
+    .order('created_at', { ascending: false })
+    .limit(10);
 
-  if (error) {
-    server.log.error(error, 'handleDelete DB error');
-    return telegramService.sendMessage(server, chatId, '❌ Gagal menghapus transaksi.');
+  if (error || !transactions || transactions.length === 0) {
+    return telegramService.sendMessage(server, chatId, 'Belum ada data transaksi yang bisa dihapus.');
   }
 
-  if (!data || data.length === 0) {
-    return telegramService.sendMessage(server, chatId, '❌ Transaksi tidak ditemukan atau Anda tidak memiliki akses.');
-  }
+  const inlineKeyboard = transactions.map(t => {
+    const symbol = t.type === 'income' ? '➕' : '➖';
+    const label = `${symbol} Rp${t.amount.toLocaleString('id-ID')} - ${t.category}`;
+    // callback_data strict length limit is 64 bytes. UUID is 36 chars, so "del_" + 36 = 40.
+    return [{ text: label, callback_data: `del_${t.id}` }];
+  });
 
-  await telegramService.sendMessage(server, chatId, '✅ Transaksi berhasil dihapus.');
+  await telegramService.sendMessage(server, chatId, 'Pilih transaksi yang ingin dihapus:', {
+    inline_keyboard: inlineKeyboard
+  });
 }
+
+async function processCallbackQuery(server, callbackQuery) {
+  const data = callbackQuery.data;
+  const telegramId = callbackQuery.from.id.toString();
+  const chatId = callbackQuery.message.chat.id;
+  const messageId = callbackQuery.message.message_id;
+
+  if (data && data.startsWith('del_')) {
+    const transactionId = data.substring(4);
+    
+    // Auth validation
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+
+    const { data: delData, error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', transactionId)
+      .eq('user_id', user.id)
+      .select();
+
+    if (error || !delData || delData.length === 0) {
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Transaksi tidak ditemukan / sudah dihapus.');
+    } else {
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Transaksi berhasil dihapus.');
+    }
+    
+    // Edit original message to show action completed and hide buttons
+    await telegramService.editMessageReplyMarkup(server, chatId, messageId, null);
+    await telegramService.sendMessage(server, chatId, '<i>Daftar transaksi tertutup.</i>');
+  }
+}
+
 
 async function handleTransaction(server, userId, chatId, text) {
   const parsed = parseTransaction(text);
@@ -205,5 +237,6 @@ async function handleTransaction(server, userId, chatId, text) {
 }
 
 module.exports = {
-  processTextMessage
+  processTextMessage,
+  processCallbackQuery
 };

@@ -23,7 +23,19 @@ async function handleUpdate(server, body) {
     }
   }
 
-  // 2. Strict Input Guards
+  // 2. Handle Callback Queries (Inline Buttons)
+  if (body.callback_query) {
+    try {
+      if (typeof botService.processCallbackQuery === 'function') {
+        await botService.processCallbackQuery(server, body.callback_query);
+      }
+    } catch (err) {
+      server.log.error(err, 'Failed to process callback query');
+    }
+    return;
+  }
+
+  // 3. Strict Input Guards for regular messages
   if (!body.message || !body.message.text) {
     server.log.debug('Update ignored: not a regular message or no text.');
     return;
@@ -31,7 +43,7 @@ async function handleUpdate(server, body) {
 
   const message = body.message;
 
-  // 3. Dispatch to Service Layer
+  // 4. Dispatch to Service Layer
   try {
     await botService.processTextMessage(server, message);
   } catch (err) {
