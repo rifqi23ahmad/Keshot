@@ -35,8 +35,8 @@ async function start() {
 
     // Cast port definitively to Number to avoid node bind errors
     const port = parseInt(process.env.PORT || '3000', 10);
-    // Listen on IPv4 and IPv6 (0.0.0.0 inside a container resolves properly, but Railway sometimes prefers generic bindings)
-    await server.listen({ port: port, host: '0.0.0.0' });
+    // Bind to '::' to support both IPv6 and IPv4 networks on Railway's container runner
+    await server.listen({ port: port, host: '::' });
     
     server.log.info(`Server is running securely on port ${port}`);
 
