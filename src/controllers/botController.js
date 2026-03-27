@@ -1,38 +1,50 @@
-const telegramService = require('../services/telegramService');
+const botService = require('../services/botService');
+const supabase = require('../lib/supabase');
 
 /**
  * Handles incoming Telegram webhook updates.
- * No database — minimal, safe, fail-fast.
- * @param {import('fastify').FastifyInstance} server
+ * @param {import('fastify').FastifyInstance} server 
  * @param {object} body - The Telegram update payload
  */
 async function handleUpdate(server, body) {
-  // Guard: must have a message with text
-  if (!body || !body.message) {
-    server.log.debug('[BOT] Update ignored: no message object');
+  // 1. Core IDEMPOTENCY CHECK
+  const updateId = body.update_id;
+  if (updateId) {
+    const { error } = await supabase
+      .from('processed_updates')
+      .insert({ update_id: updateId });
+      
+    if (error && error.code === '23505') { // Postgres Unique Violation
+      server.log.info(`Update ${updateId} already processed (idempotency skipped).`);
+      return; 
+    } else if (error) {
+      server.log.error(error, `DB Error on idempotency check for update ${updateId}`);
+      throw error; 
+    }
+  }
+
+  // 2. Strict Input Guards
+  if (!body.message || !body.message.text) {
+    server.log.debug('Update ignored: not a regular message or no text.');
     return;
   }
 
   const message = body.message;
 
-  if (!message.text) {
-    server.log.debug('[BOT] Update ignored: message has no text');
-    return;
+  // 3. Dispatch to Service Layer
+  try {
+    await botService.processTextMessage(server, message);
+  } catch (err) {
+    server.log.error(err, 'Failed to process message in BotService');
+    try {
+      const telegramService = require('../services/telegramService');
+      await telegramService.sendMessage(server, message.chat.id, '⚠️ Terjadi kesalahan, coba lagi');
+    } catch(telErr) {
+      server.log.error(telErr, 'Also failed to send generic error message.');
+    }
   }
-
-  const chatId = message.chat.id;
-  const text = message.text.trim();
-
-  server.log.info({ msg: '[BOT] Processing message', chat_id: chatId, text });
-
-  // Command routing
-  if (text === '/start') {
-    await telegramService.sendMessage(server, chatId, 'Bot Keshot aktif 🚀');
-    return;
-  }
-
-  // Echo everything else back
-  await telegramService.sendMessage(server, chatId, `Echo: ${text}`);
 }
 
-module.exports = { handleUpdate };
+module.exports = {
+  handleUpdate
+};

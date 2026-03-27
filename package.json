@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "postinstall": "prisma generate",
     "start": "npx prisma generate && npx prisma db push && node src/server.js",
     "dev": "nodemon src/server.js | pino-pretty",
     "setup:webhook": "node scripts/setup-webhook.js"
@@ -14,13 +13,10 @@
   "description": "",
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",
-    "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@supabase/supabase-js": "^2.100.1",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.4",
-    "pg": "^8.20.0",
-    "pino": "^10.3.1",
-    "prisma": "^7.5.0"
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",
