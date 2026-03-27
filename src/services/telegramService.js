@@ -65,5 +65,24 @@ async function editMessageReplyMarkup(server, chatId, messageId, replyMarkup = n
     server.log.error(err, 'editMessageReplyMarkup failed');
   }
 }
+async function editMessageText(server, chatId, messageId, text, replyMarkup = null) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const url = `https://api.telegram.org/bot${token}/editMessageText`;
+  
+  const payload = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' };
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
 
-module.exports = { sendMessage, answerCallbackQuery, editMessageReplyMarkup };
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch(err) {
+    server.log.error(err, 'editMessageText failed');
+  }
+}
+
+module.exports = { sendMessage, answerCallbackQuery, editMessageReplyMarkup, editMessageText };

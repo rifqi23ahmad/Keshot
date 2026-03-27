@@ -164,7 +164,8 @@ async function handleDelete(server, userId, chatId, text) {
 
   const inlineKeyboard = transactions.map(t => {
     const symbol = t.type === 'income' ? '➕' : '➖';
-    const label = `${symbol} Rp${t.amount.toLocaleString('id-ID')} - ${t.category}`;
+    const noteText = t.note ? t.note : t.category;
+    const label = `${symbol} Rp${t.amount.toLocaleString('id-ID')} | ${noteText}`;
     // callback_data strict length limit is 64 bytes. UUID is 36 chars, so "del_" + 36 = 40.
     return [{ text: label, callback_data: `del_${t.id}` }];
   });
@@ -196,13 +197,11 @@ async function processCallbackQuery(server, callbackQuery) {
 
     if (error || !delData || delData.length === 0) {
       await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Transaksi tidak ditemukan / sudah dihapus.');
+      await telegramService.editMessageText(server, chatId, messageId, '❌ <i>Transaksi tidak ditemukan atau sudah dihapus.</i>');
     } else {
       await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Transaksi berhasil dihapus.');
+      await telegramService.editMessageText(server, chatId, messageId, '✅ <i>Transaksi berhasil dihapus.</i>');
     }
-    
-    // Edit original message to show action completed and hide buttons
-    await telegramService.editMessageReplyMarkup(server, chatId, messageId, null);
-    await telegramService.sendMessage(server, chatId, '<i>Daftar transaksi tertutup.</i>');
   }
 }
 
