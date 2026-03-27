@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "start": "npx prisma migrate deploy && node src/server.js",
+    "postinstall": "prisma generate",
+    "start": "npx prisma db push && node src/server.js",
     "dev": "nodemon src/server.js | pino-pretty",
     "setup:webhook": "node scripts/setup-webhook.js"
   },
