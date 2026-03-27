@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          String   @id @default(uuid())
+  telegram_id String   @unique // telegram_id is critical for ownership validation
+  name        String?
+  created_at  DateTime @default(now())
+
+  transactions Transaction[]
+
+  @@index([telegram_id])
+  @@map("users")
+}
+
+model Transaction {
+  id         String   @id @default(uuid())
+  user_id    String
+  user       User     @relation(fields: [user_id], references: [id])
+  type       String   // 'income' or 'expense'
+  amount     Int
+  category   String
+  note       String?
+  created_at DateTime @default(now())
+
+  @@index([user_id])
+  @@index([created_at])
+  @@map("transactions")
+}
+
+model ProcessedUpdate {
+  update_id  Int      @id @unique
+  created_at DateTime @default(now())
+
+  @@map("processed_updates")
+}
