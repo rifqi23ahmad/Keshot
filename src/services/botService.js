@@ -205,23 +205,33 @@ async function handleDelete(server, userId, chatId, messageIdToEdit = null) {
   }
   const selected = multiDeleteState.get(userId);
 
-  const inlineKeyboard = transactions.map(t => {
-    const symbol = t.type === 'income' ? '➕' : '➖';
-    const noteText = t.note ? t.note : t.category;
+  let text = '<b>Pilih transaksi yang ingin dihapus:</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n';
+  const row1 = [];
+  const row2 = [];
+
+  transactions.forEach((t, index) => {
+    const symbol = t.type === 'income' ? '🟢' : '🔴';
+    const num = index + 1;
+    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
+    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
+    text += `     └ 📝 ${label}\n\n`;
+
     const isChecked = selected.has(t.id);
     const checkBox = isChecked ? '✅' : '⬜️';
-    const label = `${checkBox} ${symbol} Rp${t.amount.toLocaleString('id-ID')} | ${noteText}`;
+    const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}` };
     
-    // callback_data strict length limit is 64 bytes.
-    return [{ text: label, callback_data: `addel_${t.id}` }];
+    if (num <= 5) row1.push(btn);
+    else row2.push(btn);
   });
+
+  const inlineKeyboard = [];
+  if (row1.length > 0) inlineKeyboard.push(row1);
+  if (row2.length > 0) inlineKeyboard.push(row2);
 
   const actionRow = [];
   if (selected.size > 0) actionRow.push({ text: `🗑 Hapus (${selected.size})`, callback_data: 'mdel_confirm' });
   actionRow.push({ text: '❌ Batal', callback_data: 'mdel_cancel' });
   inlineKeyboard.push(actionRow);
-
-  const text = '<b>Pilih transaksi yang ingin dihapus:</b>\n<i>Anda bisa memilih beberapa sekaligus.</i>';
 
   if (messageIdToEdit) {
     await telegramService.editMessageText(server, chatId, messageIdToEdit, text, { inline_keyboard: inlineKeyboard });
