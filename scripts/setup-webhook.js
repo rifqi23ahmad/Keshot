@@ -15,10 +15,16 @@ if (!safeWebhookUrl.startsWith('http')) {
   safeWebhookUrl = `https://${safeWebhookUrl}`;
 }
 
-// The URL must end with /webhook where our Fastify route listens
-const webhookEndpoint = safeWebhookUrl.endsWith('/') 
-  ? `${safeWebhookUrl}webhook` 
-  : `${safeWebhookUrl}/webhook`;
+// Ensure we don't double append /webhook
+let baseUrl = safeWebhookUrl;
+if (baseUrl.endsWith('/webhook')) {
+  baseUrl = baseUrl.slice(0, -8); // remove '/webhook'
+}
+if (baseUrl.endsWith('/')) {
+  baseUrl = baseUrl.slice(0, -1); // remove trailing slash
+}
+
+const webhookEndpoint = `${baseUrl}/webhook`;
 
 async function setupWebhook() {
   console.log(`📡 Setting webhook to: ${webhookEndpoint}`);
