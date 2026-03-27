@@ -1,5 +1,5 @@
 [deploy]
-startCommand = "npx prisma db push && node src/server.js"
+startCommand = "node src/server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

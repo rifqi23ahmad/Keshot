@@ -1,44 +1,36 @@
-const MAX_RETRIES = 3;
-
 /**
- * Sends a message via Telegram API with built-in retry logic (resilient pattern).
- * @param {string|number} chatId 
- * @param {string} text 
+ * Sends a message via Telegram Bot API using native fetch.
+ * @param {import('fastify').FastifyInstance} server - For logging
+ * @param {string|number} chatId
+ * @param {string} text
  */
-async function sendMessage(chatId, text) {
+async function sendMessage(server, chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error('TELEGRAM_BOT_TOKEN missing');
+
+  if (!token) {
+    server.log.error('[TELEGRAM] TELEGRAM_BOT_TOKEN is not set');
+    return;
+  }
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text,
-          parse_mode: 'HTML' // Optional: making it look nice
-        })
-      });
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text })
+    });
 
-      if (!response.ok) {
-        throw new Error(`Telegram API responded with ${response.status}: ${await response.text()}`);
-      }
-
-      return await response.json(); // Success
-    } catch (err) {
-      if (attempt === MAX_RETRIES) {
-        throw new Error(`Failed to send message after ${MAX_RETRIES} attempts: ${err.message}`);
-      }
-      // Small exponential delay (e.g., 500ms, 1000ms)
-      const delayMs = attempt * 500;
-      await new Promise(res => setTimeout(res, delayMs));
+    if (!response.ok) {
+      const body = await response.text();
+      server.log.error({ msg: '[TELEGRAM] API error', status: response.status, body });
+      return;
     }
+
+    server.log.info({ msg: '[TELEGRAM] Message sent OK', chat_id: chatId });
+  } catch (err) {
+    server.log.error(err, '[TELEGRAM] fetch failed');
   }
 }
 
-module.exports = {
-  sendMessage
-};
+module.exports = { sendMessage };
