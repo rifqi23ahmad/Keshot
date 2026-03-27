@@ -1,15 +1,15 @@
 const supabase = require('../lib/supabase');
-
-const membershipCache = new Map();
+const membershipCache = require('../lib/authCache');
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function isGroupMember(telegramId) {
   const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID; 
   if (!REQUIRED_GROUP) return true; // Disabled if not set
 
+  const idStr = String(telegramId);
   const now = Date.now();
-  if (membershipCache.has(telegramId)) {
-    const cached = membershipCache.get(telegramId);
+  if (membershipCache.has(idStr)) {
+    const cached = membershipCache.get(idStr);
     if (now < cached.expiresAt) return cached.isMember;
   }
 
@@ -24,7 +24,7 @@ async function isGroupMember(telegramId) {
             isMember = true; 
         }
      }
-     membershipCache.set(telegramId, { isMember, expiresAt: now + CACHE_TTL });
+     membershipCache.set(idStr, { isMember, expiresAt: now + CACHE_TTL });
      return isMember;
   } catch(e) {
      return false; // fail closed to prevent loopholes

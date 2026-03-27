@@ -13,15 +13,14 @@ miniappUrl = `${miniappUrl}/app/index.html`;
 const MAIN_MENU = [
   [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
   [{ text: '➕ Catat', callback_data: 'cmd_add' }],
-  [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
   [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }]
 ];
 
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
 const multiDeleteState = new Map();
 
-// Cache to prevent Telegram Rate Limit which causes loop-holes
-const membershipCache = new Map();
+// Shared Cache to prevent Telegram Rate Limit and split-brain states
+const membershipCache = require('../lib/authCache');
 const CACHE_TTL = 5 * 60 * 1000;
 
 async function sendDenyMessage(server, chatId) {
@@ -39,9 +38,10 @@ async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
   const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID;
   if (!REQUIRED_GROUP) return true; // Disable if not configured
 
+  const idStr = String(userId);
   const now = Date.now();
-  if (!forceRefresh && membershipCache.has(userId)) {
-    const cached = membershipCache.get(userId);
+  if (!forceRefresh && membershipCache.has(idStr)) {
+    const cached = membershipCache.get(idStr);
     if (now < cached.expiresAt) {
       if (cached.isMember) return true;
       return sendDenyMessage(server, chatId);
@@ -61,7 +61,7 @@ async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
       }
     }
 
-    membershipCache.set(userId, { isMember, expiresAt: now + CACHE_TTL });
+    membershipCache.set(idStr, { isMember, expiresAt: now + CACHE_TTL });
 
     if (isMember) return true;
     return sendDenyMessage(server, chatId);
