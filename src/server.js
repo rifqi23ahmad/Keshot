@@ -1,9 +1,13 @@
 const Fastify = require('fastify');
 const buildApp = require('./app');
 const { PrismaClient } = require('@prisma/client');
+const { Pool } = require('pg');
+const { PrismaPg } = require('@prisma/adapter-pg');
 
-// Standard PrismaClient - reads DATABASE_URL from environment automatically
-const prisma = new PrismaClient();
+// Prisma 7 requires a driver adapter for direct DB connection
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function start() {
   // Trust Railway's upstream proxy so we don't drop connections / rate limit the proxy's IP
