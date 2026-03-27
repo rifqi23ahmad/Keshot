@@ -191,6 +191,11 @@ async function loadHistoryData() {
 
         if (response.status === 403) {
             if (listEl) listEl.innerHTML = '<div class="empty-state"><p>⚠️ Akses ditolak. Anda belum join grup.</p></div>';
+            localStorage.removeItem(cacheKey); // Hapus memori bocor
+            const hIn = document.getElementById('historyIncome');
+            const hEx = document.getElementById('historyExpense');
+            if (hIn) hIn.textContent = 'Rp 0';
+            if (hEx) hEx.textContent = 'Rp 0';
             return;
         }
         
@@ -286,6 +291,10 @@ async function fetchDashboardData(telegramId) {
         const response = await fetch(`/api/dashboard?telegramId=${telegramId}`);
         if (response.status === 403) {
             document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>⚠️ Lho kok bisa ke sini? Anda harus join grup dulu ya!</p></div>';
+            localStorage.removeItem(cacheKey); // Hapus memori bocor
+            document.getElementById('totalBalance').textContent = 'Rp 0';
+            document.getElementById('totalIncome').textContent = 'Rp 0';
+            document.getElementById('totalExpense').textContent = 'Rp 0';
             return;
         }
         if (!response.ok) throw new Error('Network response was not ok');
