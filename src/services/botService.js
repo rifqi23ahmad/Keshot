@@ -13,6 +13,7 @@ miniappUrl = `${miniappUrl}/app/index.html`;
 const MAIN_MENU = [
   [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
   [{ text: '➕ Catat', callback_data: 'cmd_add' }],
+  [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
   [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }]
 ];
 
@@ -87,6 +88,15 @@ async function handleNewGroupMember(server, message) {
 
     await telegramService.sendMessage(server, message.chat.id, text, { inline_keyboard: keyboard });
   }
+}
+
+async function handleLeftGroupMember(server, message) {
+  const leftMember = message.left_chat_member;
+  if (!leftMember || leftMember.is_bot) return;
+
+  const membershipCache = require('../lib/authCache');
+  membershipCache.delete(String(leftMember.id));
+  server.log.info({ msg: 'User left group, cleared auth cache instantly', userId: leftMember.id });
 }
 
 async function processTextMessage(server, message) {
@@ -563,5 +573,6 @@ async function handleTransaction(server, userId, chatId, text) {
 module.exports = {
   processTextMessage,
   processCallbackQuery,
-  handleNewGroupMember
+  handleNewGroupMember,
+  handleLeftGroupMember
 };

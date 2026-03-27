@@ -40,7 +40,7 @@ async function handleUpdate(server, body) {
   }
 
   // 3. Strict Input Guards for regular messages
-  if (!body.message || (!body.message.text && !body.message.web_app_data && !body.message.new_chat_members)) {
+  if (!body.message || (!body.message.text && !body.message.web_app_data && !body.message.new_chat_members && !body.message.left_chat_member)) {
     server.log.debug('Update ignored: not a regular message or no text.');
     return;
   }
@@ -52,6 +52,12 @@ async function handleUpdate(server, body) {
         await botService.handleNewGroupMember(server, body.message);
       } catch (err) {
         server.log.error(err, 'Failed to handle welcome message in group');
+      }
+    } else if (body.message.left_chat_member) {
+      try {
+        await botService.handleLeftGroupMember(server, body.message);
+      } catch (err) {
+        server.log.error(err, 'Failed to handle left member in group');
       }
     } else {
       server.log.debug('Ignored message from non-private chat.');
