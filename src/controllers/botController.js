@@ -25,6 +25,10 @@ async function handleUpdate(server, body) {
 
   // 2. Handle Callback Queries (Inline Buttons)
   if (body.callback_query) {
+    if (body.callback_query.message && body.callback_query.message.chat.type !== 'private') {
+      return; // Ignore group callbacks
+    }
+    
     try {
       if (typeof botService.processCallbackQuery === 'function') {
         await botService.processCallbackQuery(server, body.callback_query);
@@ -38,6 +42,12 @@ async function handleUpdate(server, body) {
   // 3. Strict Input Guards for regular messages
   if (!body.message || (!body.message.text && !body.message.web_app_data)) {
     server.log.debug('Update ignored: not a regular message or no text.');
+    return;
+  }
+
+  // Ignore group messages for privacy
+  if (body.message.chat.type !== 'private') {
+    server.log.debug('Ignored message from non-private chat.');
     return;
   }
 

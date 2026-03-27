@@ -20,10 +20,43 @@ const MAIN_MENU = [
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
 const multiDeleteState = new Map();
 
+async function checkMustJoin(server, userId, chatId) {
+  const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID;
+  if (!REQUIRED_GROUP) return true; // Disable if not configured
+
+  try {
+    const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getChatMember?chat_id=${REQUIRED_GROUP}&user_id=${userId}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.ok) {
+      const status = data.result.status;
+      if (['creator', 'administrator', 'member', 'restricted'].includes(status)) {
+        return true;
+      }
+    }
+
+    // Not a member
+    const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; // Configure this in env
+    const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
+    const keyboard = [[{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }]];
+
+    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
+    return false;
+
+  } catch (e) {
+    server.log.error(e, 'Failed to check chat member');
+    return true; // Fail open to not block users blindly
+  }
+}
+
 async function processTextMessage(server, message) {
   const telegramId = message.from.id.toString();
   const chatId = message.chat.id;
   const name = message.from.first_name || 'User';
+
+  const isMember = await checkMustJoin(server, message.from.id, chatId);
+  if (!isMember) return;
 
   // Find or Create User instance
   const { data: user, error: upsertError } = await supabase
@@ -334,6 +367,11 @@ async function processCallbackQuery(server, callbackQuery) {
   const telegramId = callbackQuery.from.id.toString();
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
+
+  const isMember = await checkMustJoin(server, callbackQuery.from.id, chatId);
+  if (!isMember) {
+    return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda harus join grup terlebih dahulu!', { show_alert: true });
+  }
 
   if (data && data.startsWith('addel_')) {
     const parts = data.split('_');
