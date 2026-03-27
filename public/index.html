@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
+    <div class="app-container" id="dashboardView">
         <!-- Header -->
         <header class="header glass-panel">
             <div class="user-info">
@@ -69,7 +69,7 @@
         <section class="recent-transactions glass-panel">
             <div class="section-header">
                 <h2>Aktivitas Terbaru</h2>
-                <span class="view-all">Lihat Semua</span>
+                <span class="view-all" onclick="WebAppActions.triggerHistory()" style="cursor: pointer;">Lihat Semua</span>
             </div>
             <div class="transaction-list" id="transactionList">
                 <!-- Data will be populated by JS -->
@@ -81,6 +81,47 @@
 
         <!-- Footer Button -->
         <button id="mainButton" class="tg-main-button">Tutup Dashboard</button>
+    </div>
+
+    <!-- History View -->
+    <div class="app-container" id="historyView" style="display: none;">
+        <!-- Header -->
+        <header class="header glass-panel" style="justify-content: flex-start; gap: 16px;">
+            <button class="back-btn" onclick="WebAppActions.switchView('dashboard')">◀</button>
+            <h2 class="view-title" style="margin: 0; font-size: 18px;">Riwayat Transaksi</h2>
+        </header>
+
+        <!-- Month Filter -->
+        <section class="filter-section glass-panel">
+            <div class="month-selector" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <button class="month-btn" onclick="WebAppActions.changeMonth(-1)">◀</button>
+                <div id="currentMonthDisplay" style="font-weight: 600; font-size: 16px;">Bulan Ini</div>
+                <button class="month-btn" id="nextMonthBtn" onclick="WebAppActions.changeMonth(1)" disabled style="opacity: 0.5;">▶</button>
+            </div>
+            
+            <div class="stats-row">
+                <div class="stat-item income">
+                    <div class="stat-details">
+                        <span class="stat-label">Pemasukan</span>
+                        <span class="stat-value" id="historyIncome">Rp 0</span>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <div class="stat-item expense">
+                    <div class="stat-details">
+                        <span class="stat-label">Pengeluaran</span>
+                        <span class="stat-value" id="historyExpense">Rp 0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- History List -->
+        <section class="recent-transactions glass-panel" style="flex: 1; overflow-y: auto;">
+            <div class="transaction-list" id="fullHistoryList">
+                <div class="empty-state"><p>Memuat riwayat...</p></div>
+            </div>
+        </section>
     </div>
 
     <script src="app.js"></script>

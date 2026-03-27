@@ -67,6 +67,62 @@ async function apiRoutes(server, options) {
       return reply.code(500).send({ error: 'Internal server error' });
     }
   });
+
+  // History endpoint for specific month
+  server.get('/history', async (request, reply) => {
+    const { telegramId, month, year } = request.query;
+
+    if (!telegramId || !month || !year) {
+      return reply.code(400).send({ error: 'telegramId, month, and year are required' });
+    }
+
+    try {
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('telegram_id', telegramId.toString())
+        .single();
+
+      if (userError || !user) return reply.code(404).send({ error: 'User not found' });
+
+      // Calculate date range securely
+      const intYear = parseInt(year, 10);
+      const intMonth = parseInt(month, 10);
+      
+      const startDate = new Date(intYear, intMonth - 1, 1).toISOString();
+      const endDate = new Date(intYear, intMonth, 0, 23, 59, 59, 999).toISOString();
+
+      const { data: txs, error: txError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (txError) {
+        server.log.error(txError);
+        return reply.code(500).send({ error: 'Database error' });
+      }
+
+      let mIncome = 0;
+      let mExpense = 0;
+
+      for (const t of txs) {
+        if (t.type === 'income') mIncome += t.amount;
+        if (t.type === 'expense') mExpense += t.amount;
+      }
+
+      return reply.send({ 
+        transactions: txs,
+        monthlyIncome: mIncome,
+        monthlyExpense: mExpense
+      });
+    } catch (err) {
+      server.log.error(err);
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
 }
 
 module.exports = apiRoutes;

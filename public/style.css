@@ -332,3 +332,33 @@ body {
 
 .t-amount.income { color: var(--success-color); }
 .t-amount.expense { color: var(--danger-color); }
+
+/* History View Styles */
+.back-btn {
+    background: var(--secondary-bg-color);
+    border: none;
+    color: var(--text-color);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+.month-btn {
+    background: var(--secondary-bg-color);
+    border: none;
+    color: var(--text-color);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}

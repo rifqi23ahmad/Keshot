@@ -1,3 +1,6 @@
+let currentView = 'dashboard';
+let historyDate = new Date();
+
 // Initialize Telegram Web App
 const tg = window.Telegram.WebApp;
 
@@ -30,10 +33,24 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Gagal memuat profil Telegram.</p></div>';
     }
 
-    // Close button
-    document.getElementById('mainButton').addEventListener('click', () => {
-        tg.close();
-    });
+    // MainButton Setup
+    if (tg.MainButton) {
+        tg.MainButton.setText('Tutup Dashboard');
+        tg.MainButton.show();
+        tg.MainButton.onClick(() => {
+            if (currentView === 'dashboard') tg.close();
+            else WebAppActions.switchView('dashboard');
+        });
+    }
+
+    // HTML Close button fallback
+    const mainBtn = document.getElementById('mainButton');
+    if (mainBtn) {
+        mainBtn.addEventListener('click', () => {
+            if (currentView === 'dashboard') tg.close();
+            else WebAppActions.switchView('dashboard');
+        });
+    }
 });
 
 // Mock interactions that send data back to the bot
@@ -47,10 +64,108 @@ const WebAppActions = {
         tg.close();
     },
     triggerHistory: () => {
-        tg.sendData(JSON.stringify({ action: 'cmd_history' }));
-        tg.close();
+        WebAppActions.switchView('history');
+    },
+    switchView: (view) => {
+        if (view === currentView) return;
+        const dash = document.getElementById('dashboardView');
+        const hist = document.getElementById('historyView');
+        
+        if (view === 'history') {
+            dash.style.display = 'none';
+            hist.style.display = 'flex';
+            currentView = 'history';
+            if (tg.MainButton) {
+                tg.MainButton.setText('Kembali ke Dashboard');
+            } else {
+                const btn = document.getElementById('mainButton');
+                if (btn) btn.textContent = 'Kembali ke Dashboard';
+            }
+            loadHistoryData();
+        } else {
+            hist.style.display = 'none';
+            dash.style.display = 'flex';
+            currentView = 'dashboard';
+            if (tg.MainButton) {
+                tg.MainButton.setText('Tutup Dashboard');
+            } else {
+                const btn = document.getElementById('mainButton');
+                if (btn) btn.textContent = 'Tutup Dashboard';
+            }
+        }
+    },
+    changeMonth: (delta) => {
+        historyDate.setMonth(historyDate.getMonth() + delta);
+        updateMonthDisplay();
+        loadHistoryData();
     }
 };
+
+function updateMonthDisplay() {
+    const now = new Date();
+    const isCurrentMonth = historyDate.getMonth() === now.getMonth() && historyDate.getFullYear() === now.getFullYear();
+    
+    const nextBtn = document.getElementById('nextMonthBtn');
+    if (nextBtn) {
+        nextBtn.disabled = isCurrentMonth;
+        nextBtn.style.opacity = isCurrentMonth ? '0.5' : '1';
+    }
+    
+    const display = document.getElementById('currentMonthDisplay');
+    if (display) {
+        if (isCurrentMonth) {
+            display.textContent = 'Bulan Ini';
+        } else {
+            const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            display.textContent = `${monthNames[historyDate.getMonth()]} ${historyDate.getFullYear()}`;
+        }
+    }
+}
+
+async function loadHistoryData() {
+    const telegramId = tg.initDataUnsafe?.user?.id;
+    if (!telegramId) return;
+
+    const listEl = document.getElementById('fullHistoryList');
+    if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Memuat riwayat...</p></div>';
+
+    try {
+        const month = historyDate.getMonth() + 1;
+        const year = historyDate.getFullYear();
+        const response = await fetch(`/api/history?telegramId=${telegramId}&month=${month}&year=${year}`);
+        const data = await response.json();
+
+        const hIn = document.getElementById('historyIncome');
+        const hEx = document.getElementById('historyExpense');
+        if (hIn) hIn.textContent = formatRupiah(data.monthlyIncome || 0);
+        if (hEx) hEx.textContent = formatRupiah(data.monthlyExpense || 0);
+
+        if (!data.transactions || data.transactions.length === 0) {
+            if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Belum ada transaksi di bulan ini.</p></div>';
+            return;
+        }
+
+        if (listEl) {
+            listEl.innerHTML = data.transactions.map(t => `
+                <div class="transaction-item">
+                    <div class="t-left">
+                        <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
+                        <div class="t-info">
+                            <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
+                            <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
+                        </div>
+                    </div>
+                    <div class="t-amount ${t.type}">
+                        ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (e) {
+        console.error(e);
+        if (listEl) listEl.innerHTML = '<div class="empty-state"><p>Gagal memuat riwayat.</p></div>';
+    }
+}
 
 function formatRupiah(number) {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
