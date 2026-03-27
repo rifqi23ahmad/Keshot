@@ -40,7 +40,7 @@ async function handleUpdate(server, body) {
   }
 
   // 3. Strict Input Guards for regular messages
-  if (!body.message || (!body.message.text && !body.message.web_app_data)) {
+  if (!body.message || (!body.message.text && !body.message.web_app_data && !body.message.new_chat_members)) {
     server.log.debug('Update ignored: not a regular message or no text.');
     return;
   }
