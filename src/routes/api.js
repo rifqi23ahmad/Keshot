@@ -1,11 +1,34 @@
 const supabase = require('../lib/supabase');
 
+async function isGroupMember(telegramId) {
+  const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID; 
+  if (!REQUIRED_GROUP) return true; // Disabled if not set
+
+  try {
+     const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getChatMember?chat_id=${REQUIRED_GROUP}&user_id=${telegramId}`;
+     const res = await fetch(url);
+     const data = await res.json();
+     if (data.ok) {
+        const status = data.result.status;
+        if (['creator', 'administrator', 'member', 'restricted'].includes(status)) return true; 
+     }
+     return false;
+  } catch(e) {
+     return true; // fail open
+  }
+}
+
 async function apiRoutes(server, options) {
   server.get('/dashboard', async (request, reply) => {
     const telegramId = request.query.telegramId;
     
     if (!telegramId) {
       return reply.code(400).send({ error: 'telegramId is required' });
+    }
+
+    const isMember = await isGroupMember(telegramId);
+    if (!isMember) {
+      return reply.code(403).send({ error: 'Akses Ditolak' });
     }
 
     try {
@@ -74,6 +97,11 @@ async function apiRoutes(server, options) {
 
     if (!telegramId || !month || !year) {
       return reply.code(400).send({ error: 'telegramId, month, and year are required' });
+    }
+
+    const isMember = await isGroupMember(telegramId);
+    if (!isMember) {
+      return reply.code(403).send({ error: 'Akses Ditolak' });
     }
 
     try {

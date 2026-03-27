@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // MainButton Setup
     if (tg.MainButton) {
+        const fallbackBtn = document.getElementById('mainButton');
+        if (fallbackBtn) fallbackBtn.style.display = 'none'; // Sembunyikan tombol duplikat
+
         tg.MainButton.setText('Tutup Dashboard');
         tg.MainButton.show();
         tg.MainButton.onClick(() => {
@@ -133,6 +136,12 @@ async function loadHistoryData() {
         const month = historyDate.getMonth() + 1;
         const year = historyDate.getFullYear();
         const response = await fetch(`/api/history?telegramId=${telegramId}&month=${month}&year=${year}`);
+        
+        if (response.status === 403) {
+            if (listEl) listEl.innerHTML = '<div class="empty-state"><p>⚠️ Akses ditolak. Anda belum join grup.</p></div>';
+            return;
+        }
+        
         const data = await response.json();
 
         const hIn = document.getElementById('historyIncome');
@@ -201,6 +210,10 @@ function formatRelativeTime(dateString) {
 async function fetchDashboardData(telegramId) {
     try {
         const response = await fetch(`/api/dashboard?telegramId=${telegramId}`);
+        if (response.status === 403) {
+            document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>⚠️ Lho kok bisa ke sini? Anda harus join grup dulu ya!</p></div>';
+            return;
+        }
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
 
