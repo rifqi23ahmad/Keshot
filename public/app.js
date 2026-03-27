@@ -22,11 +22,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const user = tg.initDataUnsafe.user;
         userNameElement.textContent = user.first_name;
         userAvatarElement.textContent = user.first_name.charAt(0).toUpperCase();
+        
+        // Fetch real data from server
+        fetchDashboardData(user.id);
+    } else {
+        // Fallback or dev mode
+        document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Gagal memuat profil Telegram.</p></div>';
     }
-
-    // Mock functionality: Render some dummy transactions if no real API exists yet
-    // In the future, this should fetch from an endpoint on the Fastify server.
-    renderDummyData();
 
     // Close button
     document.getElementById('mainButton').addEventListener('click', () => {
@@ -50,43 +52,71 @@ const WebAppActions = {
     }
 };
 
-function renderDummyData() {
-    // For now, let's display some aesthetically pleasing dummy data
-    document.getElementById('totalBalance').textContent = 'Rp 3.500.000';
-    document.getElementById('totalIncome').textContent = 'Rp 5.000.000';
-    document.getElementById('totalExpense').textContent = 'Rp 1.500.000';
+function formatRupiah(number) {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
+}
 
-    const transactionList = document.getElementById('transactionList');
-    transactionList.innerHTML = `
-        <div class="transaction-item">
-            <div class="t-left">
-                <div class="t-icon">🛒</div>
-                <div class="t-info">
-                    <span class="t-title">Belanja Bulanan</span>
-                    <span class="t-date">Hari Ini, 10:30</span>
+function getIconForApp(category, type) {
+    if (type === 'income') return '💼';
+    const catLower = category ? category.toLowerCase() : '';
+    if (catLower.includes('makan') || catLower.includes('food')) return '🍕';
+    if (catLower.includes('kopi') || catLower.includes('coffee')) return '☕️';
+    if (catLower.includes('belanja') || catLower.includes('shopping')) return '🛒';
+    if (catLower.includes('transport')) return '🚗';
+    return type === 'income' ? '💰' : '💸';
+}
+
+function formatRelativeTime(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    const timeStr = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute:'2-digit' });
+    
+    if (diffDays === 0 && now.getDate() === date.getDate()) {
+        return `Hari Ini, ${timeStr}`;
+    } else if (diffDays === 1 || (diffDays === 0 && now.getDate() !== date.getDate())) {
+        return `Kemarin, ${timeStr}`;
+    } else {
+        return `${date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}, ${timeStr}`;
+    }
+}
+
+async function fetchDashboardData(telegramId) {
+    try {
+        const response = await fetch(`/api/dashboard?telegramId=${telegramId}`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+
+        document.getElementById('totalBalance').textContent = formatRupiah(data.totalBalance);
+        document.getElementById('totalIncome').textContent = formatRupiah(data.totalIncome);
+        document.getElementById('totalExpense').textContent = formatRupiah(data.totalExpense);
+
+        const transactionList = document.getElementById('transactionList');
+        
+        if (!data.recentTransactions || data.recentTransactions.length === 0) {
+            transactionList.innerHTML = '<div class="empty-state"><p>Belum ada transaksi.</p></div>';
+            return;
+        }
+
+        transactionList.innerHTML = data.recentTransactions.map(t => `
+            <div class="transaction-item">
+                <div class="t-left">
+                    <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
+                    <div class="t-info">
+                        <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
+                        <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
+                    </div>
+                </div>
+                <div class="t-amount ${t.type}">
+                    ${t.type === 'income' ? '+' : '-'} ${formatRupiah(t.amount)}
                 </div>
             </div>
-            <div class="t-amount expense">- Rp 500.000</div>
-        </div>
-        <div class="transaction-item">
-            <div class="t-left">
-                <div class="t-icon">💼</div>
-                <div class="t-info">
-                    <span class="t-title">Gaji Bulanan</span>
-                    <span class="t-date">Kemarin, 09:00</span>
-                </div>
-            </div>
-            <div class="t-amount income">+ Rp 5.000.000</div>
-        </div>
-        <div class="transaction-item">
-            <div class="t-left">
-                <div class="t-icon">☕️</div>
-                <div class="t-info">
-                    <span class="t-title">Kopi</span>
-                    <span class="t-date">Kemarin, 15:45</span>
-                </div>
-            </div>
-            <div class="t-amount expense">- Rp 35.000</div>
-        </div>
-    `;
+        `).join('');
+
+    } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        document.getElementById('transactionList').innerHTML = '<div class="empty-state"><p>Gagal memuat data. Pastikan Anda sudah terdaftar di bot.</p></div>';
+    }
 }
