@@ -2,6 +2,11 @@ const telegramService = require('./telegramService');
 const { parseTransaction } = require('../utils/parser');
 const supabase = require('../lib/supabase');
 
+const MAIN_MENU = [
+  [ { text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' } ],
+  [ { text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' } ]
+];
+
 async function processTextMessage(server, message) {
   const telegramId = message.from.id.toString();
   const chatId = message.chat.id;
@@ -49,12 +54,8 @@ async function handleStart(server, chatId, name) {
                `<b>Cara mencatat transaksi:</b>\n` +
                `➕ Pendapatan: <code>+50000 Gaji</code>\n` +
                `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
-               `<b>Perintah:</b>\n` +
-               `/summary - Lihat ringkasan saldo\n` +
-               `/history - 10 transaksi terakhir\n` +
-               `/today - Transaksi hari ini\n` +
-               `/delete &lt;id&gt; - Hapus transaksi`;
-  await telegramService.sendMessage(server, chatId, text);
+               `Anda juga bisa menggunakan menu di bawah ini:`;
+  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
 async function handleSummary(server, userId, chatId) { 
@@ -83,7 +84,7 @@ async function handleSummary(server, userId, chatId) {
                `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
                `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
   
-  await telegramService.sendMessage(server, chatId, text);
+  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
 async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit = null) {
@@ -134,8 +135,9 @@ async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit =
   if (navigationRow.length > 0) {
     inlineKeyboard.push(navigationRow);
   }
+  inlineKeyboard.push(...MAIN_MENU);
 
-  const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : null;
+  const replyMarkup = { inline_keyboard: inlineKeyboard };
 
   if (messageIdToEdit) {
     await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
@@ -176,7 +178,7 @@ async function handleToday(server, userId, chatId) {
     text += `     └ 📝 ${label}\n\n`;
   });
 
-  await telegramService.sendMessage(server, chatId, text);
+  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
 async function handleDelete(server, userId, chatId, text) {
@@ -196,9 +198,9 @@ async function handleDelete(server, userId, chatId, text) {
     const symbol = t.type === 'income' ? '➕' : '➖';
     const noteText = t.note ? t.note : t.category;
     const label = `${symbol} Rp${t.amount.toLocaleString('id-ID')} | ${noteText}`;
-    // callback_data strict length limit is 64 bytes. UUID is 36 chars, so "del_" + 36 = 40.
     return [{ text: label, callback_data: `del_${t.id}` }];
   });
+  inlineKeyboard.push(...MAIN_MENU);
 
   await telegramService.sendMessage(server, chatId, 'Pilih transaksi yang ingin dihapus:', {
     inline_keyboard: inlineKeyboard
@@ -242,6 +244,25 @@ async function processCallbackQuery(server, callbackQuery) {
       await handleHistory(server, user.id, chatId, page, messageId);
       await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
     }
+  } else if (data && data.startsWith('cmd_')) {
+    // Auth validation
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+    
+    await telegramService.answerCallbackQuery(server, callbackQuery.id);
+    
+    // Switch command dynamically and edit current message if possible, or send new
+    if (data === 'cmd_summary') {
+      await handleSummary(server, user.id, chatId);
+    } else if (data === 'cmd_today') {
+      await handleToday(server, user.id, chatId);
+    } else if (data === 'cmd_history') {
+      await handleHistory(server, user.id, chatId, 1, messageId); // Replace menu with history!
+    } else if (data === 'cmd_delete') {
+      // Just replacing the current menu message to save space
+      await telegramService.editMessageText(server, chatId, messageId, '<i>Daftar transaksi tertutup.</i>');
+      await handleDelete(server, user.id, chatId, '/delete');
+    }
   }
 }
 
@@ -272,7 +293,7 @@ async function handleTransaction(server, userId, chatId, text) {
   const responseText = `✅ ${parsed.type === 'income' ? 'Pemasukan' : 'Pengeluaran'} tercatat\n\n` +
                        `* Rp${parsed.amount.toLocaleString('id-ID')} (${parsed.category})`;
 
-  await telegramService.sendMessage(server, chatId, responseText);
+  await telegramService.sendMessage(server, chatId, responseText, { inline_keyboard: MAIN_MENU });
 }
 
 module.exports = {
