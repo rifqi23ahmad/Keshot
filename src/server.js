@@ -1,19 +1,9 @@
 const Fastify = require('fastify');
 const buildApp = require('./app');
 const { PrismaClient } = require('@prisma/client');
-const { Pool } = require('pg');
-const { PrismaPg } = require('@prisma/adapter-pg');
 
-let prisma;
-if (Fastify.prisma) {
-  prisma = Fastify.prisma;
-} else {
-  const connectionString = process.env.DATABASE_URL;
-  const pool = new Pool({ connectionString });
-  const adapter = new PrismaPg(pool);
-  prisma = new PrismaClient({ adapter });
-}
-Fastify.prisma = prisma; // Attach to Fastify global to avoid connection leaks
+// Standard PrismaClient - reads DATABASE_URL from environment automatically
+const prisma = new PrismaClient();
 
 async function start() {
   // Trust Railway's upstream proxy so we don't drop connections / rate limit the proxy's IP
