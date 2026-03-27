@@ -27,7 +27,7 @@ async function isGroupMember(telegramId) {
      membershipCache.set(telegramId, { isMember, expiresAt: now + CACHE_TTL });
      return isMember;
   } catch(e) {
-     return true; // fail open
+     return false; // fail closed to prevent loopholes
   }
 }
 

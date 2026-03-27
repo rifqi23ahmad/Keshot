@@ -20,36 +20,57 @@ const MAIN_MENU = [
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
 const multiDeleteState = new Map();
 
-async function checkMustJoin(server, userId, chatId) {
+// Cache to prevent Telegram Rate Limit which causes loop-holes
+const membershipCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000;
+
+async function sendDenyMessage(server, chatId) {
+  const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; 
+  const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
+  const keyboard = [
+    [{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }],
+    [{ text: '🔄 Saya Sudah Join', callback_data: 'cmd_check_join' }]
+  ];
+  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
+  return false;
+}
+
+async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
   const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID;
   if (!REQUIRED_GROUP) return true; // Disable if not configured
+
+  const now = Date.now();
+  if (!forceRefresh && membershipCache.has(userId)) {
+    const cached = membershipCache.get(userId);
+    if (now < cached.expiresAt) {
+      if (cached.isMember) return true;
+      return sendDenyMessage(server, chatId);
+    }
+  }
 
   try {
     const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getChatMember?chat_id=${REQUIRED_GROUP}&user_id=${userId}`;
     const res = await fetch(url);
     const data = await res.json();
 
+    let isMember = false;
     if (data.ok) {
       const status = data.result.status;
       if (['creator', 'administrator', 'member', 'restricted'].includes(status)) {
-        return true;
+        isMember = true;
       }
     }
 
-     // Not a member
-     const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; // Configure this in env
-     const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
-     const keyboard = [
-       [{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }],
-       [{ text: '🔄 Saya Sudah Join', callback_data: 'cmd_check_join' }]
-     ];
+    membershipCache.set(userId, { isMember, expiresAt: now + CACHE_TTL });
 
-     await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
-     return false;
+    if (isMember) return true;
+    return sendDenyMessage(server, chatId);
 
   } catch (e) {
-     server.log.error(e, 'Failed to check chat member');
-     return true; // Fail open to not block users blindly
+    server.log.error(e, 'Failed to check chat member');
+    // Fail closed! Jangan biarkan lolos jika network error (Celah keamanan)
+    await telegramService.sendMessage(server, chatId, '⚠️ Gagal memverifikasi status Anda karena masalah jaringan. Coba klik "🔄 Saya Sudah Join" nanti.');
+    return false;
   }
 }
 
@@ -386,7 +407,8 @@ async function processCallbackQuery(server, callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
 
-  const isMember = await checkMustJoin(server, callbackQuery.from.id, chatId);
+  const isCheckJoin = (data === 'cmd_check_join');
+  const isMember = await checkMustJoin(server, callbackQuery.from.id, chatId, isCheckJoin);
   if (!isMember) {
     if (data === 'cmd_check_join') {
       return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda belum bergabung dengan grup, silakan join terlebih dahulu.', { show_alert: true });
