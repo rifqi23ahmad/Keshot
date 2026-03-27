@@ -2,7 +2,10 @@ const telegramService = require('./telegramService');
 const { parseTransaction } = require('../utils/parser');
 const supabase = require('../lib/supabase');
 
-let miniappUrl = process.env.WEBHOOK_URL || 'https://example.com';
+let miniappUrl = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'example.com';
+if (!miniappUrl.startsWith('http')) {
+  miniappUrl = `https://${miniappUrl}`;
+}
 if (miniappUrl.endsWith('/webhook')) miniappUrl = miniappUrl.slice(0, -8);
 if (miniappUrl.endsWith('/')) miniappUrl = miniappUrl.slice(0, -1);
 miniappUrl = `${miniappUrl}/app/index.html`;
