@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Keshot Dashboard</title>
+    <!-- Telegram Web App script -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header glass-panel">
+            <div class="user-info">
+                <div class="avatar" id="userAvatar">K</div>
+                <div class="greeting">
+                    <span class="greeting-text">Halo,</span>
+                    <h1 class="user-name" id="userName">Pengguna</h1>
+                </div>
+            </div>
+            <div class="theme-toggle" id="themeToggle">
+                🎨
+            </div>
+        </header>
+
+        <!-- Main Balance Card -->
+        <section class="balance-card glass-panel highlight">
+            <div class="balance-label">Total Saldo</div>
+            <div class="balance-amount" id="totalBalance">Rp 0</div>
+            
+            <div class="stats-row">
+                <div class="stat-item income">
+                    <div class="stat-icon">⬇️</div>
+                    <div class="stat-details">
+                        <span class="stat-label">Pemasukan</span>
+                        <span class="stat-value" id="totalIncome">Rp 0</span>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <div class="stat-item expense">
+                    <div class="stat-icon">⬆️</div>
+                    <div class="stat-details">
+                        <span class="stat-label">Pengeluaran</span>
+                        <span class="stat-value" id="totalExpense">Rp 0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="quick-actions">
+            <button class="action-btn add-income" onclick="WebAppActions.triggerIncome()">
+                <div class="icon">💼</div>
+                <span>Catat<br>Pemasukan</span>
+            </button>
+            <button class="action-btn add-expense" onclick="WebAppActions.triggerExpense()">
+                <div class="icon">🛒</div>
+                <span>Catat<br>Pengeluaran</span>
+            </button>
+            <button class="action-btn view-history" onclick="WebAppActions.triggerHistory()">
+                <div class="icon">📜</div>
+                <span>Lihat<br>Histori</span>
+            </button>
+        </section>
+
+        <!-- Recent Transactions Skeleton -->
+        <section class="recent-transactions glass-panel">
+            <div class="section-header">
+                <h2>Aktivitas Terbaru</h2>
+                <span class="view-all">Lihat Semua</span>
+            </div>
+            <div class="transaction-list" id="transactionList">
+                <!-- Data will be populated by JS -->
+                <div class="empty-state">
+                    <p>Memuat data dari bot...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer Button -->
+        <button id="mainButton" class="tg-main-button">Tutup Dashboard</button>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

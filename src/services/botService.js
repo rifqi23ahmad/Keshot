@@ -2,10 +2,16 @@ const telegramService = require('./telegramService');
 const { parseTransaction } = require('../utils/parser');
 const supabase = require('../lib/supabase');
 
+let miniappUrl = process.env.WEBHOOK_URL || 'https://example.com';
+if (miniappUrl.endsWith('/webhook')) miniappUrl = miniappUrl.slice(0, -8);
+if (miniappUrl.endsWith('/')) miniappUrl = miniappUrl.slice(0, -1);
+miniappUrl = `${miniappUrl}/app/index.html`;
+
 const MAIN_MENU = [
-  [ { text: '➕ Tambah', callback_data: 'cmd_add' } ],
-  [ { text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' } ],
-  [ { text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' } ]
+  [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
+  [{ text: '➕ Catat', callback_data: 'cmd_add' }],
+  [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
+  [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }]
 ];
 
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
@@ -14,7 +20,6 @@ const multiDeleteState = new Map();
 async function processTextMessage(server, message) {
   const telegramId = message.from.id.toString();
   const chatId = message.chat.id;
-  const text = message.text.trim();
   const name = message.from.first_name || 'User';
 
   // Find or Create User instance
@@ -31,6 +36,32 @@ async function processTextMessage(server, message) {
     server.log.error(upsertError, `Failed to upsert user for telegram_id: ${telegramId}`);
     return;
   }
+
+  // Handle Web App Data
+  if (message.web_app_data) {
+    try {
+      const data = JSON.parse(message.web_app_data.data);
+      if (data.action === 'cmd_add_income' || data.action === 'cmd_add_expense' || data.action === 'cmd_add') {
+        const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
+          `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
+          `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
+          `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
+        return telegramService.sendMessage(server, chatId, addText, {
+          force_reply: true,
+          input_field_placeholder: '+/- Nominal Keterangan'
+        });
+      } else if (data.action === 'cmd_history') {
+        return handleHistory(server, user.id, chatId);
+      }
+    } catch (e) {
+      server.log.error(e, 'Failed to parse web_app_data');
+    }
+    return;
+  }
+
+  // Ensure text exists before processing commands
+  if (!message.text) return;
+  const text = message.text.trim();
 
   // Commands Routing
   if (text === '/start') {
@@ -56,14 +87,14 @@ async function processTextMessage(server, message) {
 
 async function handleStart(server, chatId, name) {
   const text = `Halo, ${name}! 👋\nSaya adalah <b>Keshot</b>, bot pencatat keuangan pribadi Anda.\n\n` +
-               `<b>Cara mencatat transaksi:</b>\n` +
-               `➕ Pendapatan: <code>+50000 Gaji</code>\n` +
-               `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
-               `Anda juga bisa menggunakan menu di bawah ini:`;
+    `<b>Cara mencatat transaksi:</b>\n` +
+    `➕ Pendapatan: <code>+50000 Gaji</code>\n` +
+    `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
+    `Anda juga bisa menggunakan menu di bawah ini:`;
   await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
-async function handleSummary(server, userId, chatId) { 
+async function handleSummary(server, userId, chatId) {
   const { data, error } = await supabase
     .from('transactions')
     .select('type, amount')
@@ -85,10 +116,10 @@ async function handleSummary(server, userId, chatId) {
   const balance = totalIncome - totalExpense;
 
   const text = `📊 <b>Ringkasan Keuangan</b>\n\n` +
-               `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
-               `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
-               `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
-  
+    `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
+    `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
+    `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
+
   await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
 }
 
@@ -129,7 +160,7 @@ async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit =
 
   const inlineKeyboard = [];
   const navigationRow = [];
-  
+
   if (page > 1) {
     navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `hist_${page - 1}` });
   }
@@ -216,7 +247,7 @@ async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = n
 
   const inlineKeyboard = [];
   const navigationRow = [];
-  
+
   if (page > 1) navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `today_${page - 1}` });
   if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `today_${page + 1}` });
 
@@ -269,7 +300,7 @@ async function handleDelete(server, userId, chatId, messageIdToEdit = null, page
     const checkBox = isChecked ? '✅' : '⬜️';
     // Use offset index in the grid button to match the text
     const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}_pg${page}` };
-    
+
     if (index < 5) row1.push(btn);
     else row2.push(btn);
   });
@@ -306,7 +337,7 @@ async function processCallbackQuery(server, callbackQuery) {
     const transactionId = parts[1];
     const pageStr = parts[2] ? parts[2].replace('pg', '') : '1';
     const page = parseInt(pageStr, 10) || 1;
-    
+
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
@@ -348,7 +379,7 @@ async function processCallbackQuery(server, callbackQuery) {
   } else if (data === 'mdel_cancel') {
     const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (user) multiDeleteState.delete(user.id);
-    
+
     await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
 
@@ -382,9 +413,9 @@ async function processCallbackQuery(server, callbackQuery) {
     // Auth validation
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-    
+
     await telegramService.answerCallbackQuery(server, callbackQuery.id);
-    
+
     // Switch command dynamically and edit current message if possible, or send new
     if (data === 'cmd_summary') {
       await handleSummary(server, user.id, chatId);
@@ -397,9 +428,9 @@ async function processCallbackQuery(server, callbackQuery) {
       await handleDelete(server, user.id, chatId, messageId);
     } else if (data === 'cmd_add') {
       const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
-                      `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
-                      `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
-                      `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
+        `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
+        `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
+        `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
       await telegramService.sendMessage(server, chatId, addText, {
         force_reply: true,
         input_field_placeholder: '+/- Nominal Keterangan'
@@ -433,7 +464,7 @@ async function handleTransaction(server, userId, chatId, text) {
   }
 
   const responseText = `✅ ${parsed.type === 'income' ? 'Pemasukan' : 'Pengeluaran'} tercatat\n\n` +
-                       `* Rp${parsed.amount.toLocaleString('id-ID')} (${parsed.category})`;
+    `* Rp${parsed.amount.toLocaleString('id-ID')} (${parsed.category})`;
 
   await telegramService.sendMessage(server, chatId, responseText, { inline_keyboard: MAIN_MENU });
 }

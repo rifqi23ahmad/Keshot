@@ -14,6 +14,13 @@ async function buildApp(server) {
 
   // Register Webhook Routes
   await server.register(webhookRoutes, { prefix: '/' });
+
+  // Serve static files for the Telegram Mini App
+  const path = require('path');
+  await server.register(require('@fastify/static'), {
+    root: path.join(__dirname, '../public'),
+    prefix: '/app/',
+  });
 }
 
 module.exports = buildApp;

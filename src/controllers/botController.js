@@ -36,7 +36,7 @@ async function handleUpdate(server, body) {
   }
 
   // 3. Strict Input Guards for regular messages
-  if (!body.message || !body.message.text) {
+  if (!body.message || (!body.message.text && !body.message.web_app_data)) {
     server.log.debug('Update ignored: not a regular message or no text.');
     return;
   }
