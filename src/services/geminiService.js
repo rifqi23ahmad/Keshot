@@ -1,7 +1,5 @@
 const rotator = require('../lib/geminiKeyRotator');
 
-const rotator = require('../lib/geminiKeyRotator');
-
 const REQUEST_TIMEOUT = 8000; // 8 seconds (Vision AI needs a bit more time)
 const MAX_RETRY = 1;
 
