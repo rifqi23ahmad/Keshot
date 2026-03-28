@@ -120,38 +120,34 @@ async function processPhotoMessage(server, message) {
   }
 
   try {
-    await telegramService.sendMessage(server, chatId, '⏳ Sedang membaca struktur teks struk dengan Tesseract AI...');
-  } catch(e) {}
-
-  try {
     const fileData = await telegramService.getFile(server, largestPhoto.file_id);
     if (!fileData || !fileData.file_path) throw new Error('File path not found');
 
     const imageBuffer = await telegramService.downloadFileBuffer(server, fileData.file_path);
     if (!imageBuffer) throw new Error('Failed to download buffer');
 
-    const rawText = await ocrService.extractText(imageBuffer);
-    
-    if (!rawText || rawText.trim().length === 0) {
-      return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca sama sekali. Coba foto lebih jelas dengan pencahayaan terang.');
-    }
-
-    try {
-      await telegramService.sendMessage(server, chatId, '🧠 Merapikan hasil dengan Gemini AI...');
-    } catch(e) {}
-
     let result;
     try {
-      result = await geminiService.callGeminiWithRotation(rawText, server);
+      try {
+        await telegramService.sendMessage(server, chatId, '🧠 Membaca struk dengan **Gemini 2.5 AI**...');
+      } catch(e) {}
+
+      const base64Image = imageBuffer.toString('base64');
+      result = await geminiService.callGeminiWithRotation(base64Image, 'image/jpeg', server);
       if (typeof result.total !== 'number' || !Array.isArray(result.items)) {
          throw new Error('Gemini hallucinated strict JSON structure');
       }
-      result.raw = rawText;
+      result.raw = "(Parsed by Gemini AI Vision)";
     } catch (err) {
-      server.log.warn({ msg: 'Gemini AI Failed, falling back to Regex Parser', error: err.message });
+      server.log.warn({ msg: 'Gemini AI Failed, falling back to Tesseract OCR', error: err.message });
       try {
-        await telegramService.sendMessage(server, chatId, '⚠️ Gemini AI sibuk. Menggunakan algoritma *Fallback Regex*...');
+        await telegramService.sendMessage(server, chatId, '⚠️ Gemini AI Sibuk. Mengaktifkan *Tesseract OCR* sebagai cadangan...');
       } catch(e) {}
+      
+      const rawText = await ocrService.extractText(imageBuffer);
+      if (!rawText || rawText.trim().length === 0) {
+        return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca sama sekali. Coba foto lebih jelas dengan pencahayaan terang.');
+      }
       result = parserService.parseReceipt(rawText);
     }
 

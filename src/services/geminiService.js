@@ -1,12 +1,14 @@
 const rotator = require('../lib/geminiKeyRotator');
 
-const REQUEST_TIMEOUT = 5000; // 5 seconds
+const rotator = require('../lib/geminiKeyRotator');
+
+const REQUEST_TIMEOUT = 8000; // 8 seconds (Vision AI needs a bit more time)
 const MAX_RETRY = 1;
 
 /**
- * Calls Gemini API to parse the OCR text with strict rotation/timeout checks.
+ * Calls Gemini Vision API to parse the Receipt Image with strict rotation/timeout checks.
  */
-async function callGeminiWithRotation(rawOcrText, server) {
+async function callGeminiWithRotation(base64Image, mimeType, server) {
   let attempt = 0;
 
   while (attempt <= MAX_RETRY) {
@@ -22,8 +24,8 @@ async function callGeminiWithRotation(rawOcrText, server) {
     }
 
     try {
-      const result = await fetchGeminiApi(currentKey, rawOcrText);
-      server.log.info({ msg: '[GEMINI] Parsing success', attempt });
+      const result = await fetchGeminiApi(currentKey, base64Image, mimeType);
+      server.log.info({ msg: '[GEMINI] Vision Parsing success', attempt });
       return result;
     } catch (err) {
       // Is it a rate limit / server error / timeout?
@@ -40,11 +42,11 @@ async function callGeminiWithRotation(rawOcrText, server) {
   }
 }
 
-async function fetchGeminiApi(apiKey, text) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+async function fetchGeminiApi(apiKey, imageBase64, mimeType = 'image/jpeg') {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const systemInstruction = `Anda adalah asisten parsing AI untuk struk belanja berbahasa Indonesia.
-Saya akan memberikan raw OCR text. Ekstrak data menjadi format JSON murni.
+Saya akan memberikan gambar struk belanja. Ekstrak data menjadi format JSON murni.
 Format harus persis seperti ini:
 {
   "merchant": "indomaret" | "alfamart" | "alfamidi" | "generic",
@@ -56,7 +58,10 @@ Pastikan total dan harga item presisi. HANYA OUTPUT JSON!`;
 
   const payload = {
     contents: [{
-      parts: [{ text: text }]
+      parts: [
+        { inlineData: { mimeType, data: imageBase64 } },
+        { text: "Tolong ekstrak JSON dari gambar struk ini." }
+      ]
     }],
     systemInstruction: {
       parts: [{ text: systemInstruction }]
