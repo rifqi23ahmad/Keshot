@@ -297,6 +297,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+    overflow: hidden;
 }
 
 .t-icon {
@@ -308,26 +309,36 @@ body {
     justify-content: center;
     font-size: 18px;
     background: var(--secondary-bg-color);
+    flex-shrink: 0;
 }
 
 .t-info {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .t-title {
     font-weight: 600;
     font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .t-date {
     font-size: 12px;
     color: var(--hint-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .t-amount {
     font-weight: 700;
     font-size: 15px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .t-amount.income { color: var(--success-color); }
