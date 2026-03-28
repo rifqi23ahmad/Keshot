@@ -15,6 +15,10 @@ async function start() {
   });
 
   try {
+    const rotator = require('./lib/geminiKeyRotator');
+    await rotator.initKeys();
+    server.log.info('Gemini Key Rotator Initialized');
+
     await buildApp(server);
 
     const port = process.env.PORT;

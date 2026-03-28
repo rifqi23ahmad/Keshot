@@ -4,6 +4,7 @@ const supabase = require('../lib/supabase');
 const ocrStateStore = require('../lib/ocrStateStore');
 const ocrService = require('./ocrService');
 const parserService = require('./parserService');
+const geminiService = require('./geminiService');
 
 let miniappUrl = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'example.com';
 if (!miniappUrl.startsWith('http')) {
@@ -119,7 +120,7 @@ async function processPhotoMessage(server, message) {
   }
 
   try {
-    await telegramService.sendMessage(server, chatId, '⏳ Sedang membaca struk... Mohon tunggu.');
+    await telegramService.sendMessage(server, chatId, '⏳ Sedang membaca struktur teks struk dengan Tesseract AI...');
   } catch(e) {}
 
   try {
@@ -132,13 +133,30 @@ async function processPhotoMessage(server, message) {
     const rawText = await ocrService.extractText(imageBuffer);
     
     if (!rawText || rawText.trim().length === 0) {
-      return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca. Coba foto lebih jelas dengan pencahayaan terang.');
+      return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca sama sekali. Coba foto lebih jelas dengan pencahayaan terang.');
     }
 
-    const result = parserService.parseReceipt(rawText);
+    try {
+      await telegramService.sendMessage(server, chatId, '🧠 Merapikan hasil dengan Gemini AI...');
+    } catch(e) {}
+
+    let result;
+    try {
+      result = await geminiService.callGeminiWithRotation(rawText, server);
+      if (typeof result.total !== 'number' || !Array.isArray(result.items)) {
+         throw new Error('Gemini hallucinated strict JSON structure');
+      }
+      result.raw = rawText;
+    } catch (err) {
+      server.log.warn({ msg: 'Gemini AI Failed, falling back to Regex Parser', error: err.message });
+      try {
+        await telegramService.sendMessage(server, chatId, '⚠️ Gemini AI sibuk. Menggunakan algoritma *Fallback Regex*...');
+      } catch(e) {}
+      result = parserService.parseReceipt(rawText);
+    }
 
     if (result.items.length === 0 && result.total === 0) {
-       return telegramService.sendMessage(server, chatId, '❌ Gagal mengenali harga dan item pada struk ini. Pastikan foto tegak dan jelas.');
+       return telegramService.sendMessage(server, chatId, '❌ Gagal mengenali harga dan item pada struk ini. Pastikan foto tegak dan jelas (Bukan struk pudar / blur).');
     }
 
     ocrStateStore.saveOcrState(telegramId, result);
