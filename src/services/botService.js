@@ -158,8 +158,10 @@ async function processPhotoMessage(server, message) {
     ocrStateStore.saveOcrState(telegramId, result);
 
     const merchantName = result.merchant === 'generic' ? 'Umum' : result.merchant.charAt(0).toUpperCase() + result.merchant.slice(1);
+    const typeLabel = result.type === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
     
-    let text = `🧾 <b>Hasil Scan Struk</b>\n\n`;
+    let text = `🧾 <b>Hasil Scan Dokumen / Struk</b>\n\n`;
+    text += `🔁 Tipe: <b>${typeLabel}</b>\n`;
     text += `🏢 Merchant: <b>${merchantName}</b>\n`;
     text += `💰 Total: <b>Rp${result.total.toLocaleString('id-ID')}</b>\n`;
     text += `📦 Item: ${result.items.length}\n\n`;
@@ -592,21 +594,36 @@ async function processCallbackQuery(server, callbackQuery) {
       return telegramService.editMessageText(server, chatId, messageId, '<i>Struk kadaluarsa.</i>', { inline_keyboard: MAIN_MENU });
     }
 
-    const { error: insertError } = await supabase.from('transactions').insert({
-      user_id: user.id,
-      type: 'expense',
-      amount: state.total,
-      category: 'scan',
-      note: `[${state.merchant}] ${state.items.length} items`
-    });
+    let insertData = [];
+    if (state.items && state.items.length > 0) {
+      insertData = state.items.map(item => ({
+        user_id: user.id,
+        type: state.type || 'expense',
+        amount: item.price,
+        category: 'scan',
+        note: item.name
+      }));
+    } else {
+      insertData = [{
+        user_id: user.id,
+        type: state.type || 'expense',
+        amount: state.total,
+        category: 'scan',
+        note: `[${state.merchant}] dokumen scan`
+      }];
+    }
+
+    const { error: insertError } = await supabase.from('transactions').insert(insertData);
 
     if (insertError) {
       return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menyimpan.');
     }
 
     ocrStateStore.clearOcrState(telegramId);
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Berhasil disimpan!');
-    await telegramService.editMessageText(server, chatId, messageId, `✅ <b>Struk Terekam!</b>\nTotal: Rp${state.total.toLocaleString('id-ID')}`, { inline_keyboard: MAIN_MENU });
+    
+    const countSaved = insertData.length;
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, `✅ ${countSaved} item berhasil disimpan!`);
+    await telegramService.editMessageText(server, chatId, messageId, `✅ <b>${countSaved} Item Struk Terekam!</b>\nTotal: Rp${state.total.toLocaleString('id-ID')}`, { inline_keyboard: MAIN_MENU });
 
   } else if (data === 'ocr_edit') {
     const state = ocrStateStore.getOcrState(telegramId);
@@ -615,7 +632,8 @@ async function processCallbackQuery(server, callbackQuery) {
     }
     
     const merchantStr = state.merchant === 'generic' ? '' : ` ${state.merchant}`;
-    const editText = `-${state.total}${merchantStr} struk belanja`;
+    const opSign = state.type === 'income' ? '+' : '-';
+    const editText = `${opSign}${state.total}${merchantStr} dokumen scan`;
     
     ocrStateStore.clearOcrState(telegramId);
     await telegramService.answerCallbackQuery(server, callbackQuery.id);

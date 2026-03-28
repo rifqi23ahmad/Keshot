@@ -19,6 +19,14 @@ function detectMerchant(text) {
   return 'generic';
 }
 
+function detectType(text) {
+  const upper = text.toUpperCase();
+  if (upper.includes('GAJI') || upper.includes('SALARY') || upper.includes('TRANSFER MASUK') || upper.includes('TERIMA TRANSFER') || upper.includes('PENERIMAAN') || upper.includes('DITERIMA DARI') || upper.includes('INCOME')) {
+    return 'income';
+  }
+  return 'expense';
+}
+
 function parseIndomaret(lines) {
   let items = [];
   let total = 0;
@@ -118,9 +126,10 @@ function parseGeneric(lines) {
 }
 
 function parseReceipt(text) {
-  if (!text || text.trim() === '') return { merchant: 'unknown', items: [], total: 0, raw: '' };
+  if (!text || text.trim() === '') return { type: 'expense', merchant: 'unknown', items: [], total: 0, raw: '' };
 
   const merchant = detectMerchant(text);
+  const type = detectType(text);
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
   let result;
@@ -134,6 +143,7 @@ function parseReceipt(text) {
 
   return {
     merchant,
+    type,
     items: result.items || [],
     total: result.total || 0,
     raw: text

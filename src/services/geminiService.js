@@ -43,16 +43,18 @@ async function callGeminiWithRotation(base64Image, mimeType, server) {
 async function fetchGeminiApi(apiKey, imageBase64, mimeType = 'image/jpeg') {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  const systemInstruction = `Anda adalah asisten parsing AI untuk struk belanja berbahasa Indonesia.
-Saya akan memberikan gambar struk belanja. Ekstrak data menjadi format JSON murni.
+  const systemInstruction = `Anda adalah asisten parsing AI untuk struk belanja atau bukti pembayaran keuangan (termasuk Slip Gaji / Transfer Masuk) berbahasa Indonesia.
+Saya akan memberikan gambar dokumen keuangan. Ekstrak data menjadi format JSON murni.
 Format harus persis seperti ini:
 {
+  "type": "expense" | "income",
   "merchant": "indomaret" | "alfamart" | "alfamidi" | "generic",
   "total": 15000,
-  "items": [{"name": "Kopi Susu", "price": 5000}]
+  "items": [{"name": "Gaji Bulan Ini", "price": 15000}]
 }
-Abaikan PPN, kembalian, diskon footer, pajak, dll. Nominal total harus berupa Integer.
-Pastikan total dan harga item presisi. HANYA OUTPUT JSON!`;
+"type" bernilai "income" HANYA JIKA dokumen adalah bukti terima gaji, transfer uang masuk, dsb. Jika struk belanja pengeluaran, isi "expense".
+Abaikan PPN, kembalian, diskon footer, pajak, dll. Nominal total harus berupa Integer tanpa titik.
+Pastikan total dan harga item presisi. HANYA OUTPUT JSON murni tanpa markdown tick!`;
 
   const payload = {
     contents: [{
