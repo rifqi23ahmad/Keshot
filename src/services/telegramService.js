@@ -85,4 +85,42 @@ async function editMessageText(server, chatId, messageId, text, replyMarkup = nu
   }
 }
 
-module.exports = { sendMessage, answerCallbackQuery, editMessageReplyMarkup, editMessageText };
+async function getFile(server, fileId) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const url = `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`;
+  
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`getFile HTTP error ${response.status}`);
+    const data = await response.json();
+    if (data.ok) return data.result;
+    return null;
+  } catch (err) {
+    server.log.error(err, 'getFile failed');
+    return null;
+  }
+}
+
+async function downloadFileBuffer(server, filePath) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+  
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`downloadFile HTTP error ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    server.log.error(err, 'downloadFileBuffer failed');
+    return null;
+  }
+}
+
+module.exports = { 
+  sendMessage, 
+  answerCallbackQuery, 
+  editMessageReplyMarkup, 
+  editMessageText,
+  getFile,
+  downloadFileBuffer
+};

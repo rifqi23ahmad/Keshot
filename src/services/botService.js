@@ -1,6 +1,9 @@
 const telegramService = require('./telegramService');
 const { parseTransaction } = require('../utils/parser');
 const supabase = require('../lib/supabase');
+const ocrStateStore = require('../lib/ocrStateStore');
+const ocrService = require('./ocrService');
+const parserService = require('./parserService');
 
 let miniappUrl = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'example.com';
 if (!miniappUrl.startsWith('http')) {
@@ -97,6 +100,82 @@ async function handleLeftGroupMember(server, message) {
   const membershipCache = require('../lib/authCache');
   membershipCache.delete(String(leftMember.id));
   server.log.info({ msg: 'User left group, cleared auth cache instantly', userId: leftMember.id });
+}
+
+async function processPhotoMessage(server, message) {
+  const telegramId = message.from.id.toString();
+  const chatId = message.chat.id;
+
+  const isMember = await checkMustJoin(server, message.from.id, chatId);
+  if (!isMember) return;
+
+  const photos = message.photo;
+  if (!photos || photos.length === 0) return;
+
+  const largestPhoto = photos[photos.length - 1];
+  
+  if (largestPhoto.file_size && largestPhoto.file_size > 5 * 1024 * 1024) {
+    return telegramService.sendMessage(server, chatId, '⚠️ Ukuran foto terlalu besar. Maksimal 5MB.');
+  }
+
+  try {
+    await telegramService.sendMessage(server, chatId, '⏳ Sedang membaca struk... Mohon tunggu.');
+  } catch(e) {}
+
+  try {
+    const fileData = await telegramService.getFile(server, largestPhoto.file_id);
+    if (!fileData || !fileData.file_path) throw new Error('File path not found');
+
+    const imageBuffer = await telegramService.downloadFileBuffer(server, fileData.file_path);
+    if (!imageBuffer) throw new Error('Failed to download buffer');
+
+    const rawText = await ocrService.extractText(imageBuffer);
+    
+    if (!rawText || rawText.trim().length === 0) {
+      return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca. Coba foto lebih jelas dengan pencahayaan terang.');
+    }
+
+    const result = parserService.parseReceipt(rawText);
+
+    if (result.items.length === 0 && result.total === 0) {
+       return telegramService.sendMessage(server, chatId, '❌ Gagal mengenali harga dan item pada struk ini. Pastikan foto tegak dan jelas.');
+    }
+
+    ocrStateStore.saveOcrState(telegramId, result);
+
+    const merchantName = result.merchant === 'generic' ? 'Umum' : result.merchant.charAt(0).toUpperCase() + result.merchant.slice(1);
+    
+    let text = `🧾 <b>Hasil Scan Struk</b>\n\n`;
+    text += `🏢 Merchant: <b>${merchantName}</b>\n`;
+    text += `💰 Total: <b>Rp${result.total.toLocaleString('id-ID')}</b>\n`;
+    text += `📦 Item: ${result.items.length}\n\n`;
+    
+    const previewItems = result.items.slice(0, 5);
+    previewItems.forEach(item => {
+      text += ` • ${item.name} (Rp${item.price.toLocaleString('id-ID')})\n`;
+    });
+    if (result.items.length > 5) {
+      text += ` • <i>...dan ${result.items.length - 5} item lainnya</i>\n`;
+    }
+    
+    text += `\nSimpan transaksi ini?`;
+
+    const inlineKeyboard = [
+      [
+        { text: '✅ Simpan', callback_data: 'ocr_confirm' },
+        { text: '✏️ Edit', callback_data: 'ocr_edit' }
+      ],
+      [
+        { text: '❌ Batal', callback_data: 'ocr_cancel' }
+      ]
+    ];
+
+    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: inlineKeyboard });
+
+  } catch (err) {
+    server.log.error(err, 'Failed in processPhotoMessage');
+    await telegramService.sendMessage(server, chatId, '❌ Gagal memproses struk. Resolusi terlalu kecil atau proses Time Out.');
+  }
 }
 
 async function processTextMessage(server, message) {
@@ -484,6 +563,51 @@ async function processCallbackQuery(server, callbackQuery) {
     await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
 
+  } else if (data === 'ocr_cancel') {
+    ocrStateStore.clearOcrState(telegramId);
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
+    await telegramService.editMessageText(server, chatId, messageId, '<i>Scan struk dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
+
+  } else if (data === 'ocr_confirm') {
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+
+    const state = ocrStateStore.getOcrState(telegramId);
+    if (!state) {
+      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa (lebih dari 5 menit). Silakan scan ulang.', { show_alert: true });
+      return telegramService.editMessageText(server, chatId, messageId, '<i>Struk kadaluarsa.</i>', { inline_keyboard: MAIN_MENU });
+    }
+
+    const { error: insertError } = await supabase.from('transactions').insert({
+      user_id: user.id,
+      type: 'expense',
+      amount: state.total,
+      category: 'scan',
+      note: `[${state.merchant}] ${state.items.length} items`
+    });
+
+    if (insertError) {
+      return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menyimpan.');
+    }
+
+    ocrStateStore.clearOcrState(telegramId);
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Berhasil disimpan!');
+    await telegramService.editMessageText(server, chatId, messageId, `✅ <b>Struk Terekam!</b>\nTotal: Rp${state.total.toLocaleString('id-ID')}`, { inline_keyboard: MAIN_MENU });
+
+  } else if (data === 'ocr_edit') {
+    const state = ocrStateStore.getOcrState(telegramId);
+    if (!state) {
+       return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa.', { show_alert: true });
+    }
+    
+    const merchantStr = state.merchant === 'generic' ? '' : ` ${state.merchant}`;
+    const editText = `-${state.total}${merchantStr} struk belanja`;
+    
+    ocrStateStore.clearOcrState(telegramId);
+    await telegramService.answerCallbackQuery(server, callbackQuery.id);
+    await telegramService.sendMessage(server, chatId, `Silakan ubah teks di bawah ini dan kirimkan kembali:\n\n<code>${editText}</code>`);
+    await telegramService.editMessageReplyMarkup(server, chatId, messageId, null);
+
   } else if (data && data.startsWith('delpg_')) {
     const page = parseInt(data.replace('delpg_', ''), 10);
     if (!isNaN(page) && page > 0) {
@@ -572,6 +696,7 @@ async function handleTransaction(server, userId, chatId, text) {
 
 module.exports = {
   processTextMessage,
+  processPhotoMessage,
   processCallbackQuery,
   handleNewGroupMember,
   handleLeftGroupMember

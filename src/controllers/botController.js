@@ -40,8 +40,8 @@ async function handleUpdate(server, body) {
   }
 
   // 3. Strict Input Guards for regular messages
-  if (!body.message || (!body.message.text && !body.message.web_app_data && !body.message.new_chat_members && !body.message.left_chat_member)) {
-    server.log.debug('Update ignored: not a regular message or no text.');
+  if (!body.message || (!body.message.text && !body.message.web_app_data && !body.message.new_chat_members && !body.message.left_chat_member && !body.message.photo)) {
+    server.log.debug('Update ignored: not a regular message, photo, or text.');
     return;
   }
 
@@ -69,7 +69,11 @@ async function handleUpdate(server, body) {
 
   // 4. Dispatch to Service Layer
   try {
-    await botService.processTextMessage(server, message);
+    if (message.photo) {
+      await botService.processPhotoMessage(server, message);
+    } else {
+      await botService.processTextMessage(server, message);
+    }
   } catch (err) {
     server.log.error(err, 'Failed to process message in BotService');
     try {
