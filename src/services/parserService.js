@@ -2,8 +2,9 @@
 
 /**
  * Regex patterns
+ * [1-9] at start prevents it from matching NPWP like 01.336.238
  */
-const PRICE_REGEX = /\b\d{1,3}(?:\.\d{3})+\b/g;
+const PRICE_REGEX = /\b[1-9]\d{0,2}(?:[.,]\d{3})+\b/g;
 const CLEAN_PRICE_REGEX = /[^\d]/g;
 
 function parsePrice(str) {
@@ -13,7 +14,7 @@ function parsePrice(str) {
 function detectMerchant(text) {
   const upper = text.toUpperCase();
   if (upper.includes('INDOMARET')) return 'indomaret';
-  if (upper.includes('ALFAMART')) return 'alfamart';
+  if (upper.includes('ALFAMART') || upper.includes('ALFARIA')) return 'alfamart';
   if (upper.includes('ALFAMIDI')) return 'alfamidi';
   return 'generic';
 }
