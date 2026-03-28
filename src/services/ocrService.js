@@ -1,7 +1,8 @@
 // src/services/ocrService.js
 const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
-const pLimit = require('p-limit');
+const pLimitModule = require('p-limit');
+const pLimit = pLimitModule.default || pLimitModule;
 
 // Max 2 concurrent OCR jobs to save memory
 const limitPool = pLimit(2);
