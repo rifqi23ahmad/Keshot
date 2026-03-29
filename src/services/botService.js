@@ -728,7 +728,9 @@ async function processCallbackQuery(server, callbackQuery) {
 
     await supabase
       .from('users')
-      .update({ reminder_enabled: true, reminder_hour: hour })
+      // Reset reminder_last_sent agar reminder langsung terkirim di jam baru
+      // meskipun hari ini sudah pernah terkirim di jam sebelumnya
+      .update({ reminder_enabled: true, reminder_hour: hour, reminder_last_sent: null })
       .eq('id', user.id);
 
     await telegramService.answerCallbackQuery(

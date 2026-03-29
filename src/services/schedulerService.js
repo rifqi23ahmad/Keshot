@@ -82,79 +82,81 @@ async function sendReminder(telegramId, server) {
  * 
  * @param {object} server - Fastify instance
  */
+/**
+ * Cek dan kirim reminder yang tertunggak.
+ * Dipanggil saat startup DAN setiap cron tick.
+ * Dengan cara ini, jika bot restart setelah jam reminder, reminder tetap terkirim.
+ */
+async function checkAndSend(server) {
+  const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
+  const currentHour = nowWIB.getHours();
+  const todayWIB = getTodayWIB();
+
+  server.log.info({ msg: `[Scheduler] Checking — jam ${currentHour} WIB, tanggal ${todayWIB}` });
+
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, reminder_hour, reminder_last_sent')
+      .eq('reminder_enabled', true)
+      .lte('reminder_hour', currentHour); // catch-up: ambil semua yang jam-nya sudah lewat
+
+    if (error) {
+      server.log.error({ msg: '[Scheduler] DB error', error });
+      return;
+    }
+
+    if (!users || users.length === 0) {
+      server.log.info({ msg: '[Scheduler] Tidak ada user dengan reminder aktif' });
+      return;
+    }
+
+    // Filter: hanya yang belum terkirim HARI INI (WIB)
+    const pending = users.filter(u => {
+      if (!u.reminder_last_sent) return true; // belum pernah terkirim
+      const lastSentWIB = new Date(
+        new Date(u.reminder_last_sent).toLocaleString('en-US', { timeZone: TIMEZONE })
+      );
+      const lastSentDate = [
+        lastSentWIB.getFullYear(),
+        String(lastSentWIB.getMonth() + 1).padStart(2, '0'),
+        String(lastSentWIB.getDate()).padStart(2, '0')
+      ].join('-');
+      return lastSentDate < todayWIB; // hari sebelumnya → belum dikirim hari ini
+    });
+
+    if (pending.length === 0) {
+      server.log.info({ msg: '[Scheduler] Semua user sudah menerima reminder hari ini' });
+      return;
+    }
+
+    server.log.info({ msg: `[Scheduler] Mengirim ${pending.length} reminder...` });
+
+    await Promise.allSettled(
+      pending.map(async (u) => {
+        const success = await sendReminder(u.telegram_id, server);
+        if (success) {
+          await supabase
+            .from('users')
+            .update({ reminder_last_sent: new Date().toISOString() })
+            .eq('id', u.id);
+        }
+      })
+    );
+  } catch (err) {
+    server.log.error({ msg: '[Scheduler] Unexpected error', err: err.message });
+  }
+}
+
 function start(server) {
-  cron.schedule(
-    '0 * * * *',
-    async () => {
-      const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
-      const currentHour = nowWIB.getHours();
-      const todayWIB = getTodayWIB(); // e.g. "2026-03-29"
+  // Jalankan sekali saat startup untuk catch-up reminder yang terlewat
+  // (misal: bot restart setelah jam reminder sudah lewat)
+  setImmediate(() => checkAndSend(server));
 
-      server.log.info({ msg: `[Scheduler] Tick — jam ${currentHour}:00 WIB, tanggal ${todayWIB}` });
+  // Kemudian jadwalkan setiap awal jam WIB
+  cron.schedule('0 * * * *', () => checkAndSend(server), { timezone: TIMEZONE });
 
-      try {
-        // Ambil semua calon penerima reminder:
-        //  - reminder aktif
-        //  - jam reminder <= jam sekarang (catch-up jika terlewat)
-        //  - belum pernah terkirim HARI INI (reminder_last_sent < today atau null)
-        const { data: users, error } = await supabase
-          .from('users')
-          .select('id, telegram_id, reminder_hour, reminder_last_sent')
-          .eq('reminder_enabled', true)
-          .lte('reminder_hour', currentHour);
-
-        if (error) {
-          server.log.error({ msg: '[Scheduler] DB error saat fetch users', error });
-          return;
-        }
-
-        if (!users || users.length === 0) {
-          server.log.info({ msg: '[Scheduler] Tidak ada user dengan reminder aktif jam ini' });
-          return;
-        }
-
-        // Filter client-side: hanya yang belum terkirim hari ini WIB
-        // (Supabase tidak bisa native compare date-only dari timestamptz dengan mudah)
-        const pending = users.filter(u => {
-          if (!u.reminder_last_sent) return true; // belum pernah terkirim sama sekali
-          // Ambil tanggal WIB dari timestamp reminder_last_sent
-          const lastSentWIB = new Date(
-            new Date(u.reminder_last_sent).toLocaleString('en-US', { timeZone: TIMEZONE })
-          );
-          const lastSentDate = `${lastSentWIB.getFullYear()}-${String(lastSentWIB.getMonth() + 1).padStart(2, '0')}-${String(lastSentWIB.getDate()).padStart(2, '0')}`;
-          return lastSentDate < todayWIB; // terkirim di hari sebelumnya → perlu kirim lagi
-        });
-
-        if (pending.length === 0) {
-          server.log.info({ msg: '[Scheduler] Semua user sudah menerima reminder hari ini' });
-          return;
-        }
-
-        server.log.info({ msg: `[Scheduler] Mengirim ${pending.length} reminder...` });
-
-        // Kirim paralel, lalu update reminder_last_sent jika sukses
-        await Promise.allSettled(
-          pending.map(async (u) => {
-            const success = await sendReminder(u.telegram_id, server);
-            if (success) {
-              // Update sent_status: simpan timestamp pengiriman
-              // Otomatis "reset" besok karena filter di atas membandingkan tanggal
-              await supabase
-                .from('users')
-                .update({ reminder_last_sent: new Date().toISOString() })
-                .eq('id', u.id);
-            }
-          })
-        );
-
-      } catch (err) {
-        server.log.error({ msg: '[Scheduler] Unexpected error', err: err.message });
-      }
-    },
-    { timezone: TIMEZONE }
-  );
-
-  server.log.info('[Scheduler] Daily reminder scheduler started (setiap awal jam WIB)');
+  server.log.info('[Scheduler] Daily reminder scheduler started (cek startup + setiap awal jam WIB)');
 }
 
 module.exports = { start };
