@@ -316,12 +316,12 @@ function renderHistory(data) {
             const canEdit = daysDiff <= 30;
 
             return `
-            <div class="transaction-item" ${canEdit ? `onclick="WebAppActions.openEditModal(${JSON.stringify(t).replace(/"/g, '&quot;')})"` : ''} style="${canEdit ? '' : 'opacity:0.6;'}">
+            <div class="transaction-item" ${canEdit ? `onclick="WebAppActions.openEditModal(${JSON.stringify(t).replace(/"/g, '&quot;')})"` : ''} style="${canEdit ? '' : 'opacity: 0.55; cursor: default;'}">
                 <div class="t-left">
                     <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
                     <div class="t-info">
                         <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
-                        <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}${canEdit ? ' ✏️' : ' 🔒'}</span>
+                        <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
                     </div>
                 </div>
                 <div class="t-amount ${t.type}">
@@ -455,12 +455,12 @@ function renderDashboard(data) {
         const canEdit = daysDiff <= 30;
 
         return `
-        <div class="transaction-item" ${canEdit ? `onclick="WebAppActions.openEditModal(${JSON.stringify(t).replace(/"/g, '&quot;')})"` : ''} style="${canEdit ? '' : 'opacity:0.6;'}">
+        <div class="transaction-item" ${canEdit ? `onclick="WebAppActions.openEditModal(${JSON.stringify(t).replace(/"/g, '&quot;')})"` : ''} style="${canEdit ? '' : 'opacity: 0.55; cursor: default;'}">
             <div class="t-left">
                 <div class="t-icon">${getIconForApp(t.category, t.type)}</div>
                 <div class="t-info">
                     <span class="t-title">${t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</span>
-                    <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}${canEdit ? ' ✏️' : ' 🔒'}</span>
+                    <span class="t-date">${t.note ? t.note + ' • ' : ''}${formatRelativeTime(t.created_at)}</span>
                 </div>
             </div>
             <div class="t-amount ${t.type}">
