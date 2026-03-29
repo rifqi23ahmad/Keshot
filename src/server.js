@@ -21,6 +21,10 @@ async function start() {
 
     await buildApp(server);
 
+    // Start reminder scheduler (setelah server terkonfigurasi)
+    const schedulerService = require('./services/schedulerService');
+    schedulerService.start(server);
+
     const port = process.env.PORT;
     if (!port) throw new Error('PORT environment variable is not set');
     await server.listen({ port: Number(port), host: '0.0.0.0' });

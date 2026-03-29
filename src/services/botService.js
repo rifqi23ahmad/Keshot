@@ -18,7 +18,8 @@ const MAIN_MENU = [
   [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
   [{ text: '➕ Catat', callback_data: 'cmd_add' }],
   [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
-  [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }]
+  [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }],
+  [{ text: '🔔 Reminder', callback_data: 'cmd_reminder' }]
 ];
 
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
@@ -272,6 +273,56 @@ async function handleStart(server, chatId, name) {
     `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
     `Anda juga bisa menggunakan menu di bawah ini:`;
   await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
+}
+
+async function handleReminder(server, userId, chatId, telegramId, messageIdToEdit = null) {
+  // Ambil status reminder user saat ini
+  const { data: user } = await supabase
+    .from('users')
+    .select('reminder_enabled, reminder_hour')
+    .eq('id', userId)
+    .single();
+
+  const isEnabled = user?.reminder_enabled || false;
+  const currentHour = user?.reminder_hour;
+
+  let statusText;
+  if (isEnabled && currentHour !== null && currentHour !== undefined) {
+    statusText = `✅ Reminder aktif setiap jam <b>${String(currentHour).padStart(2, '0')}:00 WIB</b>`;
+  } else {
+    statusText = `🔕 Reminder <b>tidak aktif</b>`;
+  }
+
+  const text =
+    `🔔 <b>Pengaturan Reminder Harian</b>\n\n` +
+    `${statusText}\n\n` +
+    `Pilih jam untuk mendapatkan pengingat mencatat transaksi setiap hari:`;
+
+  // Buat grid tombol jam 07:00 - 22:00, 4 kolom per baris
+  const hours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
+  const hourButtons = [];
+  for (let i = 0; i < hours.length; i += 4) {
+    hourButtons.push(
+      hours.slice(i, i + 4).map(h => ({
+        text: `${isEnabled && currentHour === h ? '✅ ' : ''}${String(h).padStart(2, '0')}:00`,
+        callback_data: `remind_set_${h}`
+      }))
+    );
+  }
+
+  const keyboard = [
+    ...hourButtons,
+    ...(isEnabled ? [[{ text: '🔕 Nonaktifkan Reminder', callback_data: 'remind_off' }]] : []),
+    [{ text: '↩️ Kembali', callback_data: 'cmd_back_menu' }]
+  ];
+
+  const replyMarkup = { inline_keyboard: keyboard };
+
+  if (messageIdToEdit) {
+    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
+  } else {
+    await telegramService.sendMessage(server, chatId, text, replyMarkup);
+  }
 }
 
 async function handleSummary(server, userId, chatId) {
@@ -666,6 +717,39 @@ async function processCallbackQuery(server, callbackQuery) {
       await handleToday(server, user.id, chatId, page, messageId);
       await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
     }
+  } else if (data && data.startsWith('remind_set_')) {
+    const hour = parseInt(data.replace('remind_set_', ''), 10);
+    if (isNaN(hour) || hour < 0 || hour > 23) {
+      return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Jam tidak valid.');
+    }
+
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+
+    await supabase
+      .from('users')
+      .update({ reminder_enabled: true, reminder_hour: hour })
+      .eq('id', user.id);
+
+    await telegramService.answerCallbackQuery(
+      server, callbackQuery.id,
+      `✅ Reminder diaktifkan jam ${String(hour).padStart(2, '0')}:00 WIB!`
+    );
+    // Refresh tampilan reminder agar centang berpindah ke jam baru
+    await handleReminder(server, user.id, chatId, telegramId, messageId);
+
+  } else if (data === 'remind_off') {
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
+    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
+
+    await supabase
+      .from('users')
+      .update({ reminder_enabled: false, reminder_hour: null })
+      .eq('id', user.id);
+
+    await telegramService.answerCallbackQuery(server, callbackQuery.id, '🔕 Reminder dinonaktifkan.');
+    await handleReminder(server, user.id, chatId, telegramId, messageId);
+
   } else if (data && data.startsWith('cmd_')) {
     // Auth validation
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
@@ -673,16 +757,19 @@ async function processCallbackQuery(server, callbackQuery) {
 
     await telegramService.answerCallbackQuery(server, callbackQuery.id);
 
-    // Switch command dynamically and edit current message if possible, or send new
     if (data === 'cmd_summary') {
       await handleSummary(server, user.id, chatId);
     } else if (data === 'cmd_today') {
       await handleToday(server, user.id, chatId);
     } else if (data === 'cmd_history') {
-      await handleHistory(server, user.id, chatId, 1, messageId); // Replace menu with history!
+      await handleHistory(server, user.id, chatId, 1, messageId);
     } else if (data === 'cmd_delete') {
       multiDeleteState.delete(user.id);
       await handleDelete(server, user.id, chatId, messageId);
+    } else if (data === 'cmd_reminder') {
+      await handleReminder(server, user.id, chatId, telegramId, messageId);
+    } else if (data === 'cmd_back_menu') {
+      await handleStart(server, chatId, callbackQuery.from.first_name || 'User');
     } else if (data === 'cmd_add') {
       const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
         `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
