@@ -1,6 +1,5 @@
 'use strict';
 
-const cron = require('node-cron');
 const supabase = require('../lib/supabase');
 
 // Target timezone: WIB (UTC+7)
@@ -150,13 +149,10 @@ async function checkAndSend(server) {
 
 function start(server) {
   // Jalankan sekali saat startup untuk catch-up reminder yang terlewat
-  // (misal: bot restart setelah jam reminder sudah lewat)
+  // Pengecekan rutin selanjutnya akan ditrigger via HTTP Endpoint oleh External Cron
   setImmediate(() => checkAndSend(server));
 
-  // Kemudian jadwalkan setiap awal jam WIB
-  cron.schedule('0 * * * *', () => checkAndSend(server), { timezone: TIMEZONE });
-
-  server.log.info('[Scheduler] Daily reminder scheduler started (cek startup + setiap awal jam WIB)');
+  server.log.info('[Scheduler] Initial startup reminder check executed. Waiting for external cron triggers.');
 }
 
-module.exports = { start };
+module.exports = { start, checkAndSend };

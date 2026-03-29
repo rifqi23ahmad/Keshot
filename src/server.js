@@ -14,6 +14,23 @@ async function start() {
     return { status: 'healthy', bot: 'Keshot' };
   });
 
+  // External Cron Trigger Endpoint
+  server.get('/cron/reminders', async (request, reply) => {
+    // 1. Verifikasi Secret agar orang asing tidak panggil endpoint ini sembarangan
+    const { secret } = request.query;
+    if (secret !== process.env.CRON_SECRET) {
+      server.log.warn('Unauthorized cron trigger attempt');
+      return reply.code(403).send({ error: 'Unauthorized' });
+    }
+    
+    // 2. Jalankan pengecekan secara asinkron
+    const schedulerService = require('./services/schedulerService');
+    setImmediate(() => schedulerService.checkAndSend(server));
+    
+    // 3. Langsung kirim response OK (agar layanan cron pihak ketiga tidak timeout)
+    return { status: 'ok', msg: 'Reminder check triggered via external cron' };
+  });
+
   try {
     const rotator = require('./lib/geminiKeyRotator');
     await rotator.initKeys();
