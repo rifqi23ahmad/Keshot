@@ -86,14 +86,22 @@ async function sendReminder(telegramId, server) {
  * Dipanggil saat startup DAN setiap cron tick.
  * Dengan cara ini, jika bot restart setelah jam reminder, reminder tetap terkirim.
  */
-async function checkAndSend(server) {
-  const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
-  const currentHour = nowWIB.getHours();
-  const todayWIB = getTodayWIB();
+let isChecking = false;
 
-  server.log.info({ msg: `[Scheduler] Checking — jam ${currentHour} WIB, tanggal ${todayWIB}` });
+async function checkAndSend(server) {
+  if (isChecking) {
+    server.log.info({ msg: '[Scheduler] Trigger diabaikan karena pengecekan sedang berjalan.' });
+    return;
+  }
+  isChecking = true;
 
   try {
+    const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
+    const currentHour = nowWIB.getHours();
+    const todayWIB = getTodayWIB();
+
+    server.log.info({ msg: `[Scheduler] Checking — jam ${currentHour} WIB, tanggal ${todayWIB}` });
+
     const { data: users, error } = await supabase
       .from('users')
       .select('id, telegram_id, reminder_hour, reminder_last_sent')
@@ -144,6 +152,8 @@ async function checkAndSend(server) {
     );
   } catch (err) {
     server.log.error({ msg: '[Scheduler] Unexpected error', err: err.message });
+  } finally {
+    isChecking = false;
   }
 }
 
