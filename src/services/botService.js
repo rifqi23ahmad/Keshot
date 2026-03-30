@@ -737,8 +737,8 @@ async function processCallbackQuery(server, callbackQuery) {
       server, callbackQuery.id,
       `✅ Reminder diaktifkan jam ${String(hour).padStart(2, '0')}:00 WIB!`
     );
-    // Refresh tampilan reminder agar centang berpindah ke jam baru
-    await handleReminder(server, user.id, chatId, telegramId, messageId);
+    // Hapus pesan menu untuk memicu efek dust/particle disintegration dan membersihkan chat
+    await telegramService.deleteMessage(server, chatId, messageId);
 
   } else if (data === 'remind_off') {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
@@ -750,7 +750,8 @@ async function processCallbackQuery(server, callbackQuery) {
       .eq('id', user.id);
 
     await telegramService.answerCallbackQuery(server, callbackQuery.id, '🔕 Reminder dinonaktifkan.');
-    await handleReminder(server, user.id, chatId, telegramId, messageId);
+    // Hapus pesan menu untuk memicu efek disintegrasi
+    await telegramService.deleteMessage(server, chatId, messageId);
 
   } else if (data && data.startsWith('cmd_')) {
     // Auth validation

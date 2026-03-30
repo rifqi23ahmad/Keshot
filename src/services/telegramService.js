@@ -38,14 +38,18 @@ async function sendMessage(server, chatId, text, replyMarkup = null) {
   }
 }
 
-async function answerCallbackQuery(server, callbackQueryId, text) {
+async function answerCallbackQuery(server, callbackQueryId, text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const url = `https://api.telegram.org/bot${token}/answerCallbackQuery`;
+  const payload = { callback_query_id: callbackQueryId };
+  if (text) payload.text = text;
+  if (options.show_alert) payload.show_alert = true;
+  
   try {
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callback_query_id: callbackQueryId, text })
+      body: JSON.stringify(payload)
     });
   } catch (err) {
     server.log.error(err, 'answerCallbackQuery failed');
@@ -116,11 +120,31 @@ async function downloadFileBuffer(server, filePath) {
   }
 }
 
+async function deleteMessage(server, chatId, messageId) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const url = `https://api.telegram.org/bot${token}/deleteMessage`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId })
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      server.log.error({ msg: '[TELEGRAM] deleteMessage API error', status: response.status, body });
+    }
+  } catch(err) {
+    server.log.error(err, 'deleteMessage failed');
+  }
+}
+
 module.exports = { 
   sendMessage, 
   answerCallbackQuery, 
   editMessageReplyMarkup, 
   editMessageText,
   getFile,
-  downloadFileBuffer
+  downloadFileBuffer,
+  deleteMessage
 };
