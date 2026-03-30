@@ -1,248 +1,35 @@
+const formatters = require('../utils/formatters');
 const telegramService = require('./telegramService');
-const { parseTransaction } = require('../utils/parser');
-const supabase = require('../lib/supabase');
-const ocrStateStore = require('../lib/ocrStateStore');
-const ocrService = require('./ocrService');
-const parserService = require('./parserService');
-const geminiService = require('./geminiService');
-
-let miniappUrl = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'example.com';
-if (!miniappUrl.startsWith('http')) {
-  miniappUrl = `https://${miniappUrl}`;
-}
-if (miniappUrl.endsWith('/webhook')) miniappUrl = miniappUrl.slice(0, -8);
-if (miniappUrl.endsWith('/')) miniappUrl = miniappUrl.slice(0, -1);
-miniappUrl = `${miniappUrl}/app/index.html`;
-
-const MAIN_MENU = [
-  [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
-  [{ text: '➕ Catat', callback_data: 'cmd_add' }],
-  [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
-  [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }],
-  [{ text: '🔔 Reminder', callback_data: 'cmd_reminder' }]
-];
-
-// Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
-const multiDeleteState = new Map();
-const redis = require('../lib/redis');
-
-// Helper to check if redis is actually usable
-function isRedisReady() {
-  return redis && redis.status === 'ready';
-}
-
-async function getMultiDelete(userId) {
-  if (isRedisReady()) {
-    try {
-      const members = await redis.smembers(`mdel:${userId}`);
-      return new Set(members);
-    } catch (e) {
-      console.warn('[REDIS] Error in getMultiDelete, falling back to memory:', e.message);
-    }
-  }
-  if (!multiDeleteState.has(userId)) multiDeleteState.set(userId, new Set());
-  return multiDeleteState.get(userId);
-}
-
-async function clearMultiDelete(userId) {
-  if (isRedisReady()) {
-    try {
-      await redis.del(`mdel:${userId}`);
-      return;
-    } catch (e) {
-      console.warn('[REDIS] Error in clearMultiDelete:', e.message);
-    }
-  }
-  multiDeleteState.delete(userId);
-}
-
-async function toggleMultiDelete(userId, transactionId) {
-  if (isRedisReady()) {
-    try {
-      const isMember = await redis.sismember(`mdel:${userId}`, transactionId);
-      if (isMember) {
-        await redis.srem(`mdel:${userId}`, transactionId);
-      } else {
-        await redis.sadd(`mdel:${userId}`, transactionId);
-        await redis.expire(`mdel:${userId}`, 3600); // 1 hour TTL
-      }
-      return;
-    } catch (e) {
-      console.warn('[REDIS] Error in toggleMultiDelete, falling back to memory:', e.message);
-    }
-  }
-  const set = await getMultiDelete(userId);
-  if (set.has(transactionId)) set.delete(transactionId);
-  else set.add(transactionId);
-}
-
-// Shared Cache to prevent Telegram Rate Limit and split-brain states
-const membershipCache = require('../lib/authCache');
-const CACHE_TTL_SECONDS = 5 * 60; // 5 mins
-
-async function sendDenyMessage(server, chatId) {
-  const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; 
-  const text = `⚠️ <b>Akses Ditolak</b>\n\nUntuk menggunakan bot Keshot, Anda wajib bergabung ke grup komunitas dahulu.`;
-  const keyboard = [
-    [{ text: '👨‍👩‍👧‍👦 Masuk Grup', url: groupLink }],
-    [{ text: '🔄 Saya Sudah Join', callback_data: 'cmd_check_join' }]
-  ];
-  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: keyboard });
-  return false;
-}
-
-async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
-  const REQUIRED_GROUP = process.env.REQUIRED_GROUP_ID;
-  if (!REQUIRED_GROUP) return true; // Disable if not configured
-
-  const idStr = String(userId);
-  if (!forceRefresh) {
-    const cached = await membershipCache.getMembership(userId);
-    if (cached) {
-      if (cached.isMember) return true;
-      return sendDenyMessage(server, chatId);
-    }
-  }
-
-  try {
-    const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getChatMember?chat_id=${REQUIRED_GROUP}&user_id=${userId}`;
-    const res = await fetch(url);
-    const data = await res.json();
-
-    let isMember = false;
-    if (data.ok) {
-      const status = data.result.status;
-      if (['creator', 'administrator', 'member', 'restricted'].includes(status)) {
-        isMember = true;
-      }
-    }
-
-    await membershipCache.setMembership(userId, isMember, CACHE_TTL_SECONDS);
-
-    if (isMember) return true;
-    return sendDenyMessage(server, chatId);
-
-  } catch (e) {
-    server.log.error(e, 'Failed to check chat member');
-    // Fail closed! Jangan biarkan lolos jika network error (Celah keamanan)
-    await telegramService.sendMessage(server, chatId, '⚠️ Gagal memverifikasi status Anda karena masalah jaringan. Coba klik "🔄 Saya Sudah Join" nanti.');
-    return false;
-  }
-}
-
-async function handleNewGroupMember(server, message) {
-  const newMembers = message.new_chat_members;
-  if (!newMembers) return;
-
-  for (const member of newMembers) {
-    if (member.is_bot) continue;
-    
-    const botUsername = process.env.BOT_USERNAME || 'KeshotBot'; // Fallback username
-    const text = `Halo <a href="tg://user?id=${member.id}">${member.first_name}</a>! 👋\nTerima kasih sudah bergabung di grup Keshot Feedback.\n\nSilakan klik tombol di bawah ini untuk kembali ke Bot Keshot dan melanjutkan pencatatan keuangan Anda.`;
-    const keyboard = [[{ text: '🤖 Kembali ke Bot Keshot', url: `https://t.me/${botUsername}` }]];
-
-    await telegramService.sendMessage(server, message.chat.id, text, { inline_keyboard: keyboard });
-  }
-}
-
-async function handleLeftGroupMember(server, message) {
-  const leftMember = message.left_chat_member;
-  if (!leftMember || leftMember.is_bot) return;
-
-  const membershipCache = require('../lib/authCache');
-  await membershipCache.deleteMembership(leftMember.id);
-  server.log.info({ msg: 'User left group, cleared auth cache instantly', userId: leftMember.id });
-}
+const userService = require('./userService');
+const textHandler = require('../handlers/textHandler');
+const photoHandler = require('../handlers/photoHandler');
+const callbackHandler = require('../handlers/callbackHandler');
+const groupHandler = require('../handlers/groupHandler');
 
 async function processPhotoMessage(server, message) {
   const telegramId = message.from.id.toString();
   const chatId = message.chat.id;
+  const name = message.from.first_name || 'User';
 
-  const isMember = await checkMustJoin(server, message.from.id, chatId);
-  if (!isMember) return;
-
-  const photos = message.photo;
-  if (!photos || photos.length === 0) return;
-
-  const largestPhoto = photos[photos.length - 1];
-  
-  if (largestPhoto.file_size && largestPhoto.file_size > 5 * 1024 * 1024) {
-    return telegramService.sendMessage(server, chatId, '⚠️ Ukuran foto terlalu besar. Maksimal 5MB.');
+  const isMember = await userService.checkMustJoin(server, message.from.id);
+  if (!isMember) {
+    const denyMsg = formatters.formatDenyMessage();
+    return telegramService.sendMessage(server, chatId, denyMsg.text, denyMsg.replyMarkup);
   }
 
-  try {
-    const fileData = await telegramService.getFile(server, largestPhoto.file_id);
-    if (!fileData || !fileData.file_path) throw new Error('File path not found');
+  const user = await userService.getOrCreateUser(telegramId, name, server);
+  if (!user) return telegramService.sendMessage(server, chatId, '⚠️ Gagal memuat profil pengguna.');
 
-    const imageBuffer = await telegramService.downloadFileBuffer(server, fileData.file_path);
-    if (!imageBuffer) throw new Error('Failed to download buffer');
+  const ctx = {
+    server,
+    chatId,
+    telegramId,
+    messageId: message.message_id,
+    userId: user.id,
+    user
+  };
 
-    let result;
-    try {
-      try {
-        await telegramService.sendMessage(server, chatId, '🧠 Membaca struk dengan **Gemini 2.5 AI**...');
-      } catch(e) {}
-
-      const base64Image = imageBuffer.toString('base64');
-      result = await geminiService.callGeminiWithRotation(base64Image, 'image/jpeg', server);
-      if (typeof result.total !== 'number' || !Array.isArray(result.items)) {
-         throw new Error('Gemini hallucinated strict JSON structure');
-      }
-      result.raw = "(Parsed by Gemini AI Vision)";
-    } catch (err) {
-      server.log.warn({ msg: 'Gemini AI Failed, falling back to Tesseract OCR', error: err.message });
-      try {
-        await telegramService.sendMessage(server, chatId, '⚠️ Gemini AI Sibuk. Mengaktifkan *Tesseract OCR* sebagai cadangan...');
-      } catch(e) {}
-      
-      const rawText = await ocrService.extractText(imageBuffer);
-      if (!rawText || rawText.trim().length === 0) {
-        return telegramService.sendMessage(server, chatId, '❌ Struk tidak terbaca sama sekali. Coba foto lebih jelas dengan pencahayaan terang.');
-      }
-      result = parserService.parseReceipt(rawText);
-    }
-
-    if (result.items.length === 0 && result.total === 0) {
-       return telegramService.sendMessage(server, chatId, '❌ Gagal mengenali harga dan item pada struk ini. Pastikan foto tegak dan jelas (Bukan struk pudar / blur).');
-    }
-
-    await ocrStateStore.saveOcrState(telegramId, result);
-
-    const merchantName = result.merchant === 'generic' ? 'Umum' : result.merchant.charAt(0).toUpperCase() + result.merchant.slice(1);
-    const typeLabel = result.type === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
-    
-    let text = `🧾 <b>Hasil Scan Dokumen / Struk</b>\n\n`;
-    text += `🔁 Tipe: <b>${typeLabel}</b>\n`;
-    text += `🏢 Merchant: <b>${merchantName}</b>\n`;
-    text += `💰 Total: <b>Rp${result.total.toLocaleString('id-ID')}</b>\n`;
-    text += `📦 Item: ${result.items.length}\n\n`;
-    
-    const previewItems = result.items.slice(0, 5);
-    previewItems.forEach(item => {
-      text += ` • ${item.name} (Rp${item.price.toLocaleString('id-ID')})\n`;
-    });
-    if (result.items.length > 5) {
-      text += ` • <i>...dan ${result.items.length - 5} item lainnya</i>\n`;
-    }
-    
-    text += `\nSimpan transaksi ini?`;
-
-    const inlineKeyboard = [
-      [
-        { text: '✅ Simpan', callback_data: 'ocr_confirm' },
-        { text: '✏️ Edit', callback_data: 'ocr_edit' }
-      ],
-      [
-        { text: '❌ Batal', callback_data: 'ocr_cancel' }
-      ]
-    ];
-
-    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: inlineKeyboard });
-
-  } catch (err) {
-    server.log.error(err, 'Failed in processPhotoMessage');
-    await telegramService.sendMessage(server, chatId, '❌ Gagal memproses struk. Resolusi terlalu kecil atau proses Time Out.');
-  }
+  return photoHandler.handlePhoto(ctx, message);
 }
 
 async function processTextMessage(server, message) {
@@ -250,622 +37,57 @@ async function processTextMessage(server, message) {
   const chatId = message.chat.id;
   const name = message.from.first_name || 'User';
 
-  const isMember = await checkMustJoin(server, message.from.id, chatId);
-  if (!isMember) return;
-
-  // Find or Create User instance
-  const { data: user, error: upsertError } = await supabase
-    .from('users')
-    .upsert(
-      { telegram_id: telegramId, name: name },
-      { onConflict: 'telegram_id' }
-    )
-    .select('id')
-    .single();
-
-  if (upsertError) {
-    server.log.error(upsertError, `Failed to upsert user for telegram_id: ${telegramId}`);
-    return;
+  const isMember = await userService.checkMustJoin(server, message.from.id);
+  if (!isMember) {
+    const denyMsg = formatters.formatDenyMessage();
+    return telegramService.sendMessage(server, chatId, denyMsg.text, denyMsg.replyMarkup);
   }
 
-  // Handle Web App Data
-  if (message.web_app_data) {
-    try {
-      const data = JSON.parse(message.web_app_data.data);
-      if (data.action === 'cmd_add_income' || data.action === 'cmd_add_expense' || data.action === 'cmd_add') {
-        const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
-          `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
-          `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
-          `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
-        return telegramService.sendMessage(server, chatId, addText, {
-          force_reply: true,
-          input_field_placeholder: '+/- Nominal Keterangan'
-        });
-      } else if (data.action === 'cmd_history') {
-        return handleHistory(server, user.id, chatId);
-      }
-    } catch (e) {
-      server.log.error(e, 'Failed to parse web_app_data');
-    }
-    return;
-  }
+  const user = await userService.getOrCreateUser(telegramId, name, server);
+  if (!user) return telegramService.sendMessage(server, chatId, '⚠️ Gagal memuat profil pengguna.');
 
-  // Ensure text exists before processing commands
-  if (!message.text) return;
-  const text = message.text.trim();
+  const ctx = {
+    server,
+    chatId,
+    telegramId,
+    messageId: message.message_id,
+    userId: user.id,
+    user,
+    messageIdToEdit: null
+  };
 
-  // Commands Routing
-  if (text === '/start') {
-    return handleStart(server, chatId, name);
-  } else if (text === '/summary') {
-    return handleSummary(server, user.id, chatId);
-  } else if (text === '/history') {
-    return handleHistory(server, user.id, chatId);
-  } else if (text === '/today') {
-    return handleToday(server, user.id, chatId);
-  } else if (text.startsWith('/delete')) {
-    await clearMultiDelete(user.id);
-    return handleDelete(server, user.id, chatId);
-  }
-
-  // If not a command, try to parse as transaction
-  return handleTransaction(server, user.id, chatId, text);
-}
-
-// ---------------------------------------------------------
-// Command Handlers
-// ---------------------------------------------------------
-
-async function handleStart(server, chatId, name) {
-  const text = `Halo, ${name}! 👋\nSaya adalah <b>Keshot</b>, bot pencatat keuangan pribadi Anda.\n\n` +
-    `<b>Cara mencatat transaksi:</b>\n` +
-    `➕ Pendapatan: <code>+50000 Gaji</code>\n` +
-    `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
-    `Anda juga bisa menggunakan menu di bawah ini:`;
-  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
-}
-
-async function handleReminder(server, userId, chatId, telegramId, messageIdToEdit = null) {
-  // Ambil status reminder user saat ini
-  const { data: user } = await supabase
-    .from('users')
-    .select('reminder_enabled, reminder_hour')
-    .eq('id', userId)
-    .single();
-
-  const isEnabled = user?.reminder_enabled || false;
-  const currentHour = user?.reminder_hour;
-
-  let statusText;
-  if (isEnabled && currentHour !== null && currentHour !== undefined) {
-    statusText = `✅ Reminder aktif setiap jam <b>${String(currentHour).padStart(2, '0')}:00 WIB</b>`;
-  } else {
-    statusText = `🔕 Reminder <b>tidak aktif</b>`;
-  }
-
-  const text =
-    `🔔 <b>Pengaturan Reminder Harian</b>\n\n` +
-    `${statusText}\n\n` +
-    `Pilih jam untuk mendapatkan pengingat mencatat transaksi setiap hari:`;
-
-  // Buat grid tombol jam 07:00 - 22:00, 4 kolom per baris
-  const hours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
-  const hourButtons = [];
-  for (let i = 0; i < hours.length; i += 4) {
-    hourButtons.push(
-      hours.slice(i, i + 4).map(h => ({
-        text: `${isEnabled && currentHour === h ? '✅ ' : ''}${String(h).padStart(2, '0')}:00`,
-        callback_data: `remind_set_${h}`
-      }))
-    );
-  }
-
-  const keyboard = [
-    ...hourButtons,
-    ...(isEnabled ? [[{ text: '🔕 Nonaktifkan Reminder', callback_data: 'remind_off' }]] : []),
-    [{ text: '↩️ Kembali', callback_data: 'cmd_back_menu' }]
-  ];
-
-  const replyMarkup = { inline_keyboard: keyboard };
-
-  if (messageIdToEdit) {
-    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
-  } else {
-    await telegramService.sendMessage(server, chatId, text, replyMarkup);
-  }
-}
-
-async function handleSummary(server, userId, chatId) {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('type, amount')
-    .eq('user_id', userId);
-
-  if (error) {
-    server.log.error(error, 'handleSummary DB error');
-    return telegramService.sendMessage(server, chatId, '❌ Gagal memuat ringkasan.');
-  }
-
-  let totalIncome = 0;
-  let totalExpense = 0;
-
-  for (const t of data) {
-    if (t.type === 'income') totalIncome += t.amount;
-    if (t.type === 'expense') totalExpense += t.amount;
-  }
-
-  const balance = totalIncome - totalExpense;
-
-  const text = `📊 <b>Ringkasan Keuangan</b>\n\n` +
-    `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
-    `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
-    `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
-
-  await telegramService.sendMessage(server, chatId, text, { inline_keyboard: MAIN_MENU });
-}
-
-async function handleHistory(server, userId, chatId, page = 1, messageIdToEdit = null) {
-  const limit = 10;
-  const offset = (page - 1) * limit;
-
-  const { data: transactions, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit); // request 11 items to check if there is a next page
-
-  if (error) {
-    server.log.error(error, 'handleHistory DB error');
-    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, '❌ Gagal memuat histori.');
-    return telegramService.sendMessage(server, chatId, '❌ Gagal memuat histori.');
-  }
-
-  if (!transactions || transactions.length === 0) {
-    const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada data transaksi.';
-    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg);
-    return telegramService.sendMessage(server, chatId, msg);
-  }
-
-  const hasNextPage = transactions.length > limit;
-  const displayTransactions = transactions.slice(0, limit);
-
-  let text = `📜 <b>Histori Transaksi (Hal ${page})</b>\n\n`;
-  displayTransactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '🟢' : '🔴';
-    const num = offset + index + 1;
-    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ 📝 ${label}\n\n`;
-  });
-
-  const inlineKeyboard = [];
-  const navigationRow = [];
-
-  if (page > 1) {
-    navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `hist_${page - 1}` });
-  }
-  if (hasNextPage) {
-    navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `hist_${page + 1}` });
-  }
-
-  if (navigationRow.length > 0) {
-    inlineKeyboard.push(navigationRow);
-  }
-  inlineKeyboard.push(...MAIN_MENU);
-
-  const replyMarkup = { inline_keyboard: inlineKeyboard };
-
-  if (messageIdToEdit) {
-    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
-  } else {
-    await telegramService.sendMessage(server, chatId, text, replyMarkup);
-  }
-}
-
-async function handleToday(server, userId, chatId, page = 1, messageIdToEdit = null) {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
-
-  const limit = 10;
-  const offset = (page - 1) * limit;
-
-  // Calculate totals for today
-  const { data: allToday } = await supabase
-    .from('transactions')
-    .select('type, amount')
-    .eq('user_id', userId)
-    .gte('created_at', startOfDay.toISOString())
-    .lte('created_at', endOfDay.toISOString());
-
-  let totalIncome = 0;
-  let totalExpense = 0;
-  if (allToday) {
-    for (const t of allToday) {
-      if (t.type === 'income') totalIncome += t.amount;
-      if (t.type === 'expense') totalExpense += t.amount;
-    }
-  }
-
-  const { data: transactions, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', userId)
-    .gte('created_at', startOfDay.toISOString())
-    .lte('created_at', endOfDay.toISOString())
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit);
-
-  if (error) {
-    server.log.error(error, 'handleToday DB error');
-    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, '❌ Gagal memuat transaksi hari ini.');
-    return telegramService.sendMessage(server, chatId, '❌ Gagal memuat transaksi hari ini.');
-  }
-
-  if (!transactions || transactions.length === 0) {
-    const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada transaksi hari ini.';
-    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg, { inline_keyboard: MAIN_MENU });
-    return telegramService.sendMessage(server, chatId, msg, { inline_keyboard: MAIN_MENU });
-  }
-
-  const hasNextPage = transactions.length > limit;
-  const displayTransactions = transactions.slice(0, limit);
-
-  let text = `📅 <b>Transaksi Hari Ini (Hal ${page})</b>\n\n`;
-  text += `🟢 <b>Pemasukan:</b> Rp${totalIncome.toLocaleString('id-ID')}\n`;
-  text += `🔴 <b>Pengeluaran:</b> Rp${totalExpense.toLocaleString('id-ID')}\n`;
-  text += `━━━━━━━━━━━━━━━━━\n\n`;
-  displayTransactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '🟢' : '🔴';
-    const num = offset + index + 1;
-    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ 📝 ${label}\n\n`;
-  });
-
-  const inlineKeyboard = [];
-  const navigationRow = [];
-
-  if (page > 1) navigationRow.push({ text: '⬅️ Sebelumnya', callback_data: `today_${page - 1}` });
-  if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `today_${page + 1}` });
-
-  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-  inlineKeyboard.push(...MAIN_MENU);
-
-  const replyMarkup = { inline_keyboard: inlineKeyboard };
-
-  if (messageIdToEdit) await telegramService.editMessageText(server, chatId, messageIdToEdit, text, replyMarkup);
-  else await telegramService.sendMessage(server, chatId, text, replyMarkup);
-}
-
-async function handleDelete(server, userId, chatId, messageIdToEdit = null, page = 1) {
-  const limit = 10;
-  const offset = (page - 1) * limit;
-
-  const { data: transactions, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit);
-
-  if (error || !transactions || transactions.length === 0) {
-    const msg = page > 1 ? 'Tidak ada transaksi lagi di halaman ini.' : 'Belum ada data transaksi yang bisa dihapus.';
-    if (messageIdToEdit) return telegramService.editMessageText(server, chatId, messageIdToEdit, msg, { inline_keyboard: MAIN_MENU });
-    return telegramService.sendMessage(server, chatId, msg, { inline_keyboard: MAIN_MENU });
-  }
-
-  const hasNextPage = transactions.length > limit;
-  const displayTransactions = transactions.slice(0, limit);
-
-  const selected = await getMultiDelete(userId);
-
-  let text = `<b>Pilih transaksi yang ingin dihapus (Hal ${page}):</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n`;
-  const row1 = [];
-  const row2 = [];
-
-  displayTransactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '🟢' : '🔴';
-    const num = offset + index + 1;
-    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ 📝 ${label}\n\n`;
-
-    const isChecked = selected.has(t.id);
-    const checkBox = isChecked ? '✅' : '⬜️';
-    // Use offset index in the grid button to match the text
-    const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}_pg${page}` };
-
-    if (index < 5) row1.push(btn);
-    else row2.push(btn);
-  });
-
-  const inlineKeyboard = [];
-  if (row1.length > 0) inlineKeyboard.push(row1);
-  if (row2.length > 0) inlineKeyboard.push(row2);
-
-  const navigationRow = [];
-  if (page > 1) navigationRow.push({ text: '⬅️ Sebelumnnya', callback_data: `delpg_${page - 1}` });
-  if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `delpg_${page + 1}` });
-  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-
-  const actionRow = [];
-  if (selected.size > 0) actionRow.push({ text: `🗑 Hapus (${selected.size})`, callback_data: 'mdel_confirm' });
-  actionRow.push({ text: '❌ Batal', callback_data: 'mdel_cancel' });
-  inlineKeyboard.push(actionRow);
-
-  if (messageIdToEdit) {
-    await telegramService.editMessageText(server, chatId, messageIdToEdit, text, { inline_keyboard: inlineKeyboard });
-  } else {
-    await telegramService.sendMessage(server, chatId, text, { inline_keyboard: inlineKeyboard });
-  }
+  return textHandler.handleText(ctx, message);
 }
 
 async function processCallbackQuery(server, callbackQuery) {
-  const data = callbackQuery.data;
   const telegramId = callbackQuery.from.id.toString();
   const chatId = callbackQuery.message.chat.id;
-  const messageId = callbackQuery.message.message_id;
+  
+  // Notice we only get user. Upsert should only happen on text or photo message, to avoid creating ghosts here.
+  // Actually, we can fetch the user by telegram_id. If missing, it will return null.
+  const user = await userService.getUserByTelegramId(telegramId, server);
 
-  const isCheckJoin = (data === 'cmd_check_join');
-  const isMember = await checkMustJoin(server, callbackQuery.from.id, chatId, isCheckJoin);
-  if (!isMember) {
-    if (data === 'cmd_check_join') {
-      return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda belum bergabung dengan grup, silakan join terlebih dahulu.', { show_alert: true });
-    }
-    return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Anda harus join grup terlebih dahulu!', { show_alert: true });
-  }
+  const ctx = {
+    server,
+    chatId,
+    telegramId,
+    messageId: callbackQuery.message.message_id,
+    userId: user ? user.id : null,
+    user,
+    messageIdToEdit: callbackQuery.message.message_id
+  };
 
-  // Jika sudah join dan mengklik tombol 'Cek Status Join'
-  if (data === 'cmd_check_join') {
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, '✅ Berhasil memverifikasi! Selamat datang kembali.');
-    await telegramService.sendMessage(server, chatId, '✅ Verifikasi berhasil! Bot Keshot kini bisa Anda gunakan.');
-    return handleStart(server, chatId, callbackQuery.from.first_name || 'User');
-  }
-
-  if (data && data.startsWith('addel_')) {
-    const parts = data.split('_');
-    const transactionId = parts[1];
-    const pageStr = parts[2] ? parts[2].replace('pg', '') : '1';
-    const page = parseInt(pageStr, 10) || 1;
-
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    await toggleMultiDelete(user.id, transactionId);
-
-    // Silent ack to fast-update UI
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, '');
-    await handleDelete(server, user.id, chatId, messageId, page);
-
-  } else if (data === 'mdel_confirm') {
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    const selected = await getMultiDelete(user.id);
-    if (!selected || selected.size === 0) {
-      return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Pilih minimal 1 transaksi!');
-    }
-
-    const { error } = await supabase
-      .from('transactions')
-      .delete()
-      .in('id', Array.from(selected))
-      .eq('user_id', user.id);
-
-    if (error) {
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menghapus transaksi.');
-      await telegramService.editMessageText(server, chatId, messageId, '❌ <i>Gagal menghapus transaksi.</i>', { inline_keyboard: MAIN_MENU });
-    } else {
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, `✅ ${selected.size} transaksi berhasil dihapus.`);
-      await telegramService.editMessageText(server, chatId, messageId, `✅ <i>${selected.size} transaksi berhasil dihapus!</i>`, { inline_keyboard: MAIN_MENU });
-    }
-
-    await clearMultiDelete(user.id);
-
-  } else if (data === 'mdel_cancel') {
-    const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (user) await clearMultiDelete(user.id);
-
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
-    await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
-
-  } else if (data === 'ocr_cancel') {
-    await ocrStateStore.clearOcrState(telegramId);
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
-    await telegramService.editMessageText(server, chatId, messageId, '<i>Scan struk dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
-
-  } else if (data === 'ocr_confirm') {
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    const state = await ocrStateStore.getOcrState(telegramId);
-    if (!state) {
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa (lebih dari 5 menit). Silakan scan ulang.', { show_alert: true });
-      return telegramService.editMessageText(server, chatId, messageId, '<i>Struk kadaluarsa.</i>', { inline_keyboard: MAIN_MENU });
-    }
-
-    let insertData = [];
-    if (state.items && state.items.length > 0) {
-      insertData = state.items.map(item => ({
-        user_id: user.id,
-        type: state.type || 'expense',
-        amount: item.price,
-        category: 'scan',
-        note: item.name
-      }));
-    } else {
-      insertData = [{
-        user_id: user.id,
-        type: state.type || 'expense',
-        amount: state.total,
-        category: 'scan',
-        note: `[${state.merchant}] dokumen scan`
-      }];
-    }
-
-    const { error: insertError } = await supabase.from('transactions').insert(insertData);
-
-    if (insertError) {
-      return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menyimpan.');
-    }
-
-    await ocrStateStore.clearOcrState(telegramId);
-    
-    const countSaved = insertData.length;
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, `✅ ${countSaved} item berhasil disimpan!`);
-    await telegramService.editMessageText(server, chatId, messageId, `✅ <b>${countSaved} Item Struk Terekam!</b>\nTotal: Rp${state.total.toLocaleString('id-ID')}`, { inline_keyboard: MAIN_MENU });
-
-  } else if (data === 'ocr_edit') {
-    const state = await ocrStateStore.getOcrState(telegramId);
-    if (!state) {
-       return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa.', { show_alert: true });
-    }
-    
-    const merchantStr = state.merchant === 'generic' ? '' : ` ${state.merchant}`;
-    const opSign = state.type === 'income' ? '+' : '-';
-    const editText = `${opSign}${state.total}${merchantStr} dokumen scan`;
-    
-    await ocrStateStore.clearOcrState(telegramId);
-    await telegramService.answerCallbackQuery(server, callbackQuery.id);
-    await telegramService.sendMessage(server, chatId, `Silakan ubah teks di bawah ini dan kirimkan kembali:\n\n<code>${editText}</code>`);
-    await telegramService.editMessageReplyMarkup(server, chatId, messageId, null);
-
-  } else if (data && data.startsWith('delpg_')) {
-    const page = parseInt(data.replace('delpg_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-      await handleDelete(server, user.id, chatId, messageId, page);
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
-    }
-
-  } else if (data && data.startsWith('hist_')) {
-    const page = parseInt(data.replace('hist_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-      await handleHistory(server, user.id, chatId, page, messageId);
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
-    }
-
-  } else if (data && data.startsWith('today_')) {
-    const page = parseInt(data.replace('today_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-      if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-      await handleToday(server, user.id, chatId, page, messageId);
-      await telegramService.answerCallbackQuery(server, callbackQuery.id, `Halaman ${page}`);
-    }
-  } else if (data && data.startsWith('remind_set_')) {
-    const hour = parseInt(data.replace('remind_set_', ''), 10);
-    if (isNaN(hour) || hour < 0 || hour > 23) {
-      return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Jam tidak valid.');
-    }
-
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-    const currentHourWIB = nowWIB.getHours();
-
-    // Jika jam yang diset <= jam saat ini, berarti jam tersebut sudah lewat untuk HARI INI.
-    // Agar cron tidak mengira ini 'missed/catch-up' dan mengirim dobel di sisa hari, 
-    // kita set reminder_last_sent ke waktu sekarang. Besok akan otomatis tereset wajar.
-    let newLastSent = null;
-    if (hour <= currentHourWIB) {
-      newLastSent = new Date().toISOString();
-    }
-
-    await supabase
-      .from('users')
-      .update({ reminder_enabled: true, reminder_hour: hour, reminder_last_sent: newLastSent })
-      .eq('id', user.id);
-
-    await telegramService.answerCallbackQuery(
-      server, callbackQuery.id,
-      `✅ Reminder diaktifkan jam ${String(hour).padStart(2, '0')}:00 WIB!`
-    );
-    // Hapus pesan menu untuk memicu efek dust/particle disintegration dan membersihkan chat
-    await telegramService.deleteMessage(server, chatId, messageId);
-
-  } else if (data === 'remind_off') {
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    await supabase
-      .from('users')
-      .update({ reminder_enabled: false, reminder_hour: null })
-      .eq('id', user.id);
-
-    await telegramService.answerCallbackQuery(server, callbackQuery.id, '🔕 Reminder dinonaktifkan.');
-    // Hapus pesan menu untuk memicu efek disintegrasi
-    await telegramService.deleteMessage(server, chatId, messageId);
-
-  } else if (data && data.startsWith('cmd_')) {
-    // Auth validation
-    const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
-
-    await telegramService.answerCallbackQuery(server, callbackQuery.id);
-
-    if (data === 'cmd_summary') {
-      await handleSummary(server, user.id, chatId);
-    } else if (data === 'cmd_today') {
-      await handleToday(server, user.id, chatId);
-    } else if (data === 'cmd_history') {
-      await handleHistory(server, user.id, chatId, 1, messageId);
-    } else if (data === 'cmd_delete') {
-      await clearMultiDelete(user.id);
-      await handleDelete(server, user.id, chatId, messageId);
-    } else if (data === 'cmd_reminder') {
-      await handleReminder(server, user.id, chatId, telegramId, messageId);
-    } else if (data === 'cmd_back_menu') {
-      await handleStart(server, chatId, callbackQuery.from.first_name || 'User');
-    } else if (data === 'cmd_add') {
-      const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
-        `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
-        `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
-        `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
-      await telegramService.sendMessage(server, chatId, addText, {
-        force_reply: true,
-        input_field_placeholder: '+/- Nominal Keterangan'
-      });
-    }
-  }
+  return callbackHandler.handleCallback(ctx, callbackQuery);
 }
 
+async function handleNewGroupMember(server, message) {
+  const ctx = { server };
+  return groupHandler.handleNewGroupMember(ctx, message);
+}
 
-async function handleTransaction(server, userId, chatId, text) {
-  const parsed = parseTransaction(text);
-
-  if (!parsed) {
-    const errorMsg = `❌ Format gagal dipahami.\n\nContoh:\n➕ Pemasukan: <code>+50000 dari teman</code>\n➖ Pengeluaran: <code>-20000 kopi</code>`;
-    return telegramService.sendMessage(server, chatId, errorMsg);
-  }
-
-  const { error } = await supabase
-    .from('transactions')
-    .insert({
-      user_id: userId,
-      type: parsed.type,
-      amount: parsed.amount,
-      category: parsed.category,
-      note: parsed.note
-    });
-
-  if (error) {
-    server.log.error(error, 'handleTransaction DB error');
-    return telegramService.sendMessage(server, chatId, '❌ Gagal mencatat transaksi.');
-  }
-
-  const responseText = `✅ ${parsed.type === 'income' ? 'Pemasukan' : 'Pengeluaran'} tercatat\n\n` +
-    `* Rp${parsed.amount.toLocaleString('id-ID')} (${parsed.category})`;
-
-  await telegramService.sendMessage(server, chatId, responseText, { inline_keyboard: MAIN_MENU });
+async function handleLeftGroupMember(server, message) {
+  const ctx = { server };
+  return groupHandler.handleLeftGroupMember(ctx, message);
 }
 
 module.exports = {
