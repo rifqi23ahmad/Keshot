@@ -24,10 +24,41 @@ const MAIN_MENU = [
 
 // Map<string, Set<string>> (user_id -> Set of transaction UUIDs)
 const multiDeleteState = new Map();
+const redis = require('../lib/redis');
+
+async function getMultiDelete(userId) {
+  if (redis) {
+    const members = await redis.smembers(`mdel:${userId}`);
+    return new Set(members);
+  }
+  if (!multiDeleteState.has(userId)) multiDeleteState.set(userId, new Set());
+  return multiDeleteState.get(userId);
+}
+
+async function clearMultiDelete(userId) {
+  if (redis) await redis.del(`mdel:${userId}`);
+  else multiDeleteState.delete(userId);
+}
+
+async function toggleMultiDelete(userId, transactionId) {
+  if (redis) {
+    const isMember = await redis.sismember(`mdel:${userId}`, transactionId);
+    if (isMember) {
+      await redis.srem(`mdel:${userId}`, transactionId);
+    } else {
+      await redis.sadd(`mdel:${userId}`, transactionId);
+      await redis.expire(`mdel:${userId}`, 3600); // 1 hour TTL
+    }
+  } else {
+    const set = await getMultiDelete(userId);
+    if (set.has(transactionId)) set.delete(transactionId);
+    else set.add(transactionId);
+  }
+}
 
 // Shared Cache to prevent Telegram Rate Limit and split-brain states
 const membershipCache = require('../lib/authCache');
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL_SECONDS = 5 * 60; // 5 mins
 
 async function sendDenyMessage(server, chatId) {
   const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback"; 
@@ -45,10 +76,9 @@ async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
   if (!REQUIRED_GROUP) return true; // Disable if not configured
 
   const idStr = String(userId);
-  const now = Date.now();
-  if (!forceRefresh && membershipCache.has(idStr)) {
-    const cached = membershipCache.get(idStr);
-    if (now < cached.expiresAt) {
+  if (!forceRefresh) {
+    const cached = await membershipCache.getMembership(userId);
+    if (cached) {
       if (cached.isMember) return true;
       return sendDenyMessage(server, chatId);
     }
@@ -67,7 +97,7 @@ async function checkMustJoin(server, userId, chatId, forceRefresh = false) {
       }
     }
 
-    membershipCache.set(idStr, { isMember, expiresAt: now + CACHE_TTL });
+    await membershipCache.setMembership(userId, isMember, CACHE_TTL_SECONDS);
 
     if (isMember) return true;
     return sendDenyMessage(server, chatId);
@@ -100,7 +130,7 @@ async function handleLeftGroupMember(server, message) {
   if (!leftMember || leftMember.is_bot) return;
 
   const membershipCache = require('../lib/authCache');
-  membershipCache.delete(String(leftMember.id));
+  await membershipCache.deleteMembership(leftMember.id);
   server.log.info({ msg: 'User left group, cleared auth cache instantly', userId: leftMember.id });
 }
 
@@ -156,7 +186,7 @@ async function processPhotoMessage(server, message) {
        return telegramService.sendMessage(server, chatId, '❌ Gagal mengenali harga dan item pada struk ini. Pastikan foto tegak dan jelas (Bukan struk pudar / blur).');
     }
 
-    ocrStateStore.saveOcrState(telegramId, result);
+    await ocrStateStore.saveOcrState(telegramId, result);
 
     const merchantName = result.merchant === 'generic' ? 'Umum' : result.merchant.charAt(0).toUpperCase() + result.merchant.slice(1);
     const typeLabel = result.type === 'income' ? '🟢 Pemasukan' : '🔴 Pengeluaran';
@@ -254,7 +284,7 @@ async function processTextMessage(server, message) {
   } else if (text === '/today') {
     return handleToday(server, user.id, chatId);
   } else if (text.startsWith('/delete')) {
-    multiDeleteState.delete(user.id);
+    await clearMultiDelete(user.id);
     return handleDelete(server, user.id, chatId);
   }
 
@@ -511,10 +541,7 @@ async function handleDelete(server, userId, chatId, messageIdToEdit = null, page
   const hasNextPage = transactions.length > limit;
   const displayTransactions = transactions.slice(0, limit);
 
-  if (!multiDeleteState.has(userId)) {
-    multiDeleteState.set(userId, new Set());
-  }
-  const selected = multiDeleteState.get(userId);
+  const selected = await getMultiDelete(userId);
 
   let text = `<b>Pilih transaksi yang ingin dihapus (Hal ${page}):</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n`;
   const row1 = [];
@@ -588,11 +615,7 @@ async function processCallbackQuery(server, callbackQuery) {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
-    if (!multiDeleteState.has(user.id)) multiDeleteState.set(user.id, new Set());
-    const selected = multiDeleteState.get(user.id);
-
-    if (selected.has(transactionId)) selected.delete(transactionId);
-    else selected.add(transactionId);
+    await toggleMultiDelete(user.id, transactionId);
 
     // Silent ack to fast-update UI
     await telegramService.answerCallbackQuery(server, callbackQuery.id, '');
@@ -602,7 +625,7 @@ async function processCallbackQuery(server, callbackQuery) {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
-    const selected = multiDeleteState.get(user.id);
+    const selected = await getMultiDelete(user.id);
     if (!selected || selected.size === 0) {
       return telegramService.answerCallbackQuery(server, callbackQuery.id, 'Pilih minimal 1 transaksi!');
     }
@@ -621,17 +644,17 @@ async function processCallbackQuery(server, callbackQuery) {
       await telegramService.editMessageText(server, chatId, messageId, `✅ <i>${selected.size} transaksi berhasil dihapus!</i>`, { inline_keyboard: MAIN_MENU });
     }
 
-    multiDeleteState.delete(user.id);
+    await clearMultiDelete(user.id);
 
   } else if (data === 'mdel_cancel') {
     const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-    if (user) multiDeleteState.delete(user.id);
+    if (user) await clearMultiDelete(user.id);
 
     await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(server, chatId, messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
 
   } else if (data === 'ocr_cancel') {
-    ocrStateStore.clearOcrState(telegramId);
+    await ocrStateStore.clearOcrState(telegramId);
     await telegramService.answerCallbackQuery(server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(server, chatId, messageId, '<i>Scan struk dibatalkan.</i>', { inline_keyboard: MAIN_MENU });
 
@@ -639,7 +662,7 @@ async function processCallbackQuery(server, callbackQuery) {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
-    const state = ocrStateStore.getOcrState(telegramId);
+    const state = await ocrStateStore.getOcrState(telegramId);
     if (!state) {
       await telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa (lebih dari 5 menit). Silakan scan ulang.', { show_alert: true });
       return telegramService.editMessageText(server, chatId, messageId, '<i>Struk kadaluarsa.</i>', { inline_keyboard: MAIN_MENU });
@@ -670,14 +693,14 @@ async function processCallbackQuery(server, callbackQuery) {
       return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Gagal menyimpan.');
     }
 
-    ocrStateStore.clearOcrState(telegramId);
+    await ocrStateStore.clearOcrState(telegramId);
     
     const countSaved = insertData.length;
     await telegramService.answerCallbackQuery(server, callbackQuery.id, `✅ ${countSaved} item berhasil disimpan!`);
     await telegramService.editMessageText(server, chatId, messageId, `✅ <b>${countSaved} Item Struk Terekam!</b>\nTotal: Rp${state.total.toLocaleString('id-ID')}`, { inline_keyboard: MAIN_MENU });
 
   } else if (data === 'ocr_edit') {
-    const state = ocrStateStore.getOcrState(telegramId);
+    const state = await ocrStateStore.getOcrState(telegramId);
     if (!state) {
        return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Data kadaluarsa.', { show_alert: true });
     }
@@ -686,7 +709,7 @@ async function processCallbackQuery(server, callbackQuery) {
     const opSign = state.type === 'income' ? '+' : '-';
     const editText = `${opSign}${state.total}${merchantStr} dokumen scan`;
     
-    ocrStateStore.clearOcrState(telegramId);
+    await ocrStateStore.clearOcrState(telegramId);
     await telegramService.answerCallbackQuery(server, callbackQuery.id);
     await telegramService.sendMessage(server, chatId, `Silakan ubah teks di bawah ini dan kirimkan kembali:\n\n<code>${editText}</code>`);
     await telegramService.editMessageReplyMarkup(server, chatId, messageId, null);
@@ -767,7 +790,7 @@ async function processCallbackQuery(server, callbackQuery) {
     } else if (data === 'cmd_history') {
       await handleHistory(server, user.id, chatId, 1, messageId);
     } else if (data === 'cmd_delete') {
-      multiDeleteState.delete(user.id);
+      await clearMultiDelete(user.id);
       await handleDelete(server, user.id, chatId, messageId);
     } else if (data === 'cmd_reminder') {
       await handleReminder(server, user.id, chatId, telegramId, messageId);

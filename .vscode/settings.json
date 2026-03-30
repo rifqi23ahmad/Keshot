@@ -1,0 +1,6 @@
+{
+  "deno": {
+    "enable": true,
+    "importMap": "./supabase/functions/import_map.json"
+  }
+}
