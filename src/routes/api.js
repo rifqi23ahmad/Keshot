@@ -7,10 +7,9 @@ async function isGroupMember(telegramId) {
   if (!REQUIRED_GROUP) return true; // Disabled if not set
 
   const idStr = String(telegramId);
-  const now = Date.now();
-  if (membershipCache.has(idStr)) {
-    const cached = membershipCache.get(idStr);
-    if (now < cached.expiresAt) return cached.isMember;
+  const cached = await membershipCache.getMembership(idStr);
+  if (cached) {
+    return cached.isMember;
   }
 
   try {
@@ -24,7 +23,7 @@ async function isGroupMember(telegramId) {
             isMember = true; 
         }
      }
-     membershipCache.set(idStr, { isMember, expiresAt: now + CACHE_TTL });
+     await membershipCache.setMembership(idStr, isMember, CACHE_TTL / 1000);
      return isMember;
   } catch(e) {
      return false; // fail closed to prevent loopholes

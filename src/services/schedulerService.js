@@ -30,11 +30,10 @@ async function sendReminder(telegramId, server) {
     `🔔 *Reminder Keshot*\n\n` +
     `Halo\\! Sudah catat transaksi hari ini belum? 💸\n\n` +
     `Jangan sampai ada yang kelewat ya\\. Yuk catat sekarang biar keuangan tetap terpantau\\! 💪\n\n` +
-    `Ketik *\\+nominal keterangan* atau *\\-nominal keterangan* untuk mencatat\\, atau buka Dashboard\\.`;
+    `Ketik *\\+nominal keterangan* atau *\\-nominal keterangan* untuk mencatat\\.`;
 
   const inlineKeyboard = {
     inline_keyboard: [
-      [{ text: '📱 Buka Dashboard', callback_data: 'cmd_open_dashboard' }],
       [{ text: '🔕 Matikan Reminder', callback_data: 'remind_off' }],
     ],
   };
