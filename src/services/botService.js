@@ -769,11 +769,20 @@ async function processCallbackQuery(server, callbackQuery) {
     const { data: user, error: userError } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
     if (userError || !user) return telegramService.answerCallbackQuery(server, callbackQuery.id, '❌ Akses ditolak.');
 
+    const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const currentHourWIB = nowWIB.getHours();
+
+    // Jika jam yang diset <= jam saat ini, berarti jam tersebut sudah lewat untuk HARI INI.
+    // Agar cron tidak mengira ini 'missed/catch-up' dan mengirim dobel di sisa hari, 
+    // kita set reminder_last_sent ke waktu sekarang. Besok akan otomatis tereset wajar.
+    let newLastSent = null;
+    if (hour <= currentHourWIB) {
+      newLastSent = new Date().toISOString();
+    }
+
     await supabase
       .from('users')
-      // Reset reminder_last_sent agar reminder langsung terkirim di jam baru
-      // meskipun hari ini sudah pernah terkirim di jam sebelumnya
-      .update({ reminder_enabled: true, reminder_hour: hour, reminder_last_sent: null })
+      .update({ reminder_enabled: true, reminder_hour: hour, reminder_last_sent: newLastSent })
       .eq('id', user.id);
 
     await telegramService.answerCallbackQuery(
