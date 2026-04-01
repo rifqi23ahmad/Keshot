@@ -1,13 +1,14 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "date": "01 April 2026",
-  "name": "Keshot Update: Fixing Menu & Fitur Hapus Dashboard 🚀",
+  "name": "Keshot Update: Menu Saldo & Dashboard Deletion 🚀",
   "fixes": [
-    " /summary dikembalikan ke bot, /history kini difokuskan di Dashboard.",
-    "Tampilan list transaksi di bot tetap menggunakan layout baru yang lebih bersih."
+    "Tombol 'Hari Ini' diganti menjadi 'Saldo' agar lebih akurat dengan fungsinya.",
+    "Batas cakupan perintah bot (/start & /summary) kini hanya muncul di Chat Pribadi (DM).",
+    "Pembaruan status terpilih di menu Reminder menggunakan ikon ✅ agar lebih modern."
   ],
   "enhancements": [
-    "Fitur Hapus Transaksi tetap tersedia di Dashboard (Edit Transaksi).",
-    "Tombol Keyboard Bot: 'Hari Ini' untuk akses cepat laporan harian."
+    "Fitur Hapus Transaksi kini sepenuhnya dikelola via Dashboard (Edit Modal).",
+    "List transaksi di bot memiliki tampilan lebih bersih dengan format +/-."
   ]
 }

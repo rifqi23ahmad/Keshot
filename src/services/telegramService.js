@@ -139,6 +139,39 @@ async function deleteMessage(server, chatId, messageId) {
   }
 }
 
+async function setBotCommands(server) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  const url = `https://api.telegram.org/bot${token}/setMyCommands`;
+  
+  // Perintah yang hanya muncul di Private Chat (DM)
+  const payload = {
+    commands: [
+      { command: 'start', description: 'Mulai bot & buka dashboard' },
+      { command: 'summary', description: 'Lihat ringkasan saldo' }
+    ],
+    scope: { type: 'all_private_chats' }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    const data = await response.json();
+    if (data.ok) {
+      server.log.info('[TELEGRAM] Bot commands restricted to Private Chats only');
+    } else {
+      server.log.error({ msg: '[TELEGRAM] setMyCommands failed', data });
+    }
+  } catch (err) {
+    server.log.error(err, 'setBotCommands failed');
+  }
+}
+
 module.exports = { 
   sendMessage, 
   answerCallbackQuery, 
@@ -146,5 +179,6 @@ module.exports = {
   editMessageText,
   getFile,
   downloadFileBuffer,
-  deleteMessage
+  deleteMessage,
+  setBotCommands
 };

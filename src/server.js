@@ -37,6 +37,10 @@ async function start() {
     server.log.info('Gemini Key Rotator Initialized');
 
     await buildApp(server);
+    
+    // Set Bot Commands Scope to Private Chats only
+    const telegramService = require('./services/telegramService');
+    await telegramService.setBotCommands(server);
 
     // Start reminder scheduler (setelah server terkonfigurasi)
     const schedulerService = require('./services/schedulerService');

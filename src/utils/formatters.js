@@ -8,7 +8,7 @@ miniappUrl = `${miniappUrl}/app/index.html`;
 
 const PERSISTENT_KEYBOARD = {
   keyboard: [
-    [{ text: 'Hari Ini' }, { text: 'Reminder' }]
+    [{ text: 'Saldo' }, { text: 'Reminder' }]
   ],
   resize_keyboard: true,
   is_persistent: true
@@ -91,7 +91,7 @@ function formatReminder(isEnabled, currentHour) {
   for (let i = 0; i < hours.length; i += 4) {
     hourButtons.push(
       hours.slice(i, i + 4).map(h => ({
-        text: `${isEnabled && currentHour === h ? '[x] ' : ''}${String(h).padStart(2, '0')}:00`,
+        text: `${isEnabled && currentHour === h ? '✅ ' : ''}${String(h).padStart(2, '0')}:00`,
         callback_data: `remind_set_${h}`
       }))
     );

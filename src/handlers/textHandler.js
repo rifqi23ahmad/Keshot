@@ -32,7 +32,7 @@ async function handleText(ctx, message) {
   // Commands Routing
   if (text === '/start') {
     return handleStart(ctx, message.from.first_name || 'User');
-  } else if (text === '/summary') {
+  } else if (text === '/summary' || text === 'Saldo') {
     return handleSummary(ctx);
   } else if (text === '/today' || text === 'Hari Ini') {
     return handleToday(ctx, 1);
