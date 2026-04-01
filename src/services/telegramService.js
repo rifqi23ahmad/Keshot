@@ -148,8 +148,8 @@ async function setBotCommands(server) {
   // Perintah yang hanya muncul di Private Chat (DM)
   const payload = {
     commands: [
-      { command: 'start', description: 'Mulai bot & buka dashboard' },
-      { command: 'summary', description: 'Lihat ringkasan saldo' }
+      { command: 'start', description: 'Mulai' },
+      { command: 'today', description: 'Transaksi Hari Ini' }
     ],
     scope: { type: 'all_private_chats' }
   };
