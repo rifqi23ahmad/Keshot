@@ -32,8 +32,8 @@ async function handleText(ctx, message) {
   // Commands Routing
   if (text === '/start') {
     return handleStart(ctx, message.from.first_name || 'User');
-  } else if (text === '/history') {
-    return handleHistory(ctx, 1);
+  } else if (text === '/summary') {
+    return handleSummary(ctx);
   } else if (text === '/today' || text === 'Hari Ini') {
     return handleToday(ctx, 1);
   } else if (text === 'Reminder') {
@@ -63,28 +63,14 @@ async function handleStart(ctx, name) {
   await telegramService.sendMessage(ctx.server, ctx.chatId, dashMenu.text, dashMenu.replyMarkup);
 }
 
-async function handleHistory(ctx, page = 1) {
+async function handleSummary(ctx) {
   try {
-    const { transactions, hasNextPage, offset } = await transactionService.getHistory(ctx.userId, page);
-
-    if (!transactions || transactions.length === 0) {
-      const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada data transaksi.';
-      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
-      return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
-    }
-
-    const { text, replyMarkup } = formatters.formatHistory(transactions, page, hasNextPage, offset);
-
-    if (ctx.messageIdToEdit) {
-      await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, text, replyMarkup);
-    } else {
-      await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
-    }
+    const { totalIncome, totalExpense, balance } = await transactionService.getSummary(ctx.userId);
+    const { text, replyMarkup } = formatters.formatSummary(totalIncome, totalExpense, balance);
+    await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
   } catch (error) {
-    ctx.server.log.error(error, 'handleHistory DB error');
-    const msg = '❌ Gagal memuat histori.';
-    if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
-    return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
+    ctx.server.log.error(error, 'handleSummary DB error');
+    await telegramService.sendMessage(ctx.server, ctx.chatId, '❌ Gagal memuat ringkasan.');
   }
 }
 
@@ -143,7 +129,7 @@ async function handleTransaction(ctx, text) {
 module.exports = {
   handleText,
   handleStart,
-  handleHistory,
+  handleSummary,
   handleToday,
   handleTransaction
 };

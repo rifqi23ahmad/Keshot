@@ -2,7 +2,6 @@ const telegramService = require('../services/telegramService');
 const transactionService = require('../services/transactionService');
 const userService = require('../services/userService');
 const formatters = require('../utils/formatters');
-const multiDeleteState = require('../state/multiDeleteState');
 const ocrStateStore = require('../lib/ocrStateStore');
 
 // Need access to textHandler functions for routing
@@ -91,13 +90,6 @@ async function handleCallback(ctx, callbackQuery) {
     await telegramService.editMessageReplyMarkup(ctx.server, ctx.chatId, ctx.messageId, null);
 
   // ==== PAGINATION DOMAIN ====
-  } else if (data && data.startsWith('hist_')) {
-    const page = parseInt(data.replace('hist_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      await textHandler.handleHistory(ctx, page);
-      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, `Halaman ${page}`);
-    }
-
   } else if (data && data.startsWith('today_')) {
     const pageToday = parseInt(data.replace('today_', ''), 10);
     if (!isNaN(pageToday) && pageToday > 0) {
@@ -130,8 +122,8 @@ async function handleCallback(ctx, callbackQuery) {
 
     if (data === 'cmd_today') {
       await textHandler.handleToday(ctx, 1);
-    } else if (data === 'cmd_history') {
-      await textHandler.handleHistory(ctx, 1);
+    } else if (data === 'cmd_summary') {
+      await textHandler.handleSummary(ctx);
     } else if (data === 'cmd_reminder') {
       const { text, replyMarkup } = formatters.formatReminder(ctx.user.reminder_enabled, ctx.user.reminder_hour);
       await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, text, replyMarkup);

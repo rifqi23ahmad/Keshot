@@ -1,14 +1,13 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "date": "01 April 2026",
-  "name": "Keshot Update: Optimalisasi Menu & Fitur Hapus Dashboard 🚀",
+  "name": "Keshot Update: Fixing Menu & Fitur Hapus Dashboard 🚀",
   "fixes": [
-    "Tampilan list transaksi di bot kini lebih bersih dan rapih sesuai masukan pengguna.",
-    "Perbaikan navigasi keyboard bot agar lebih intuitif."
+    " /summary dikembalikan ke bot, /history kini difokuskan di Dashboard.",
+    "Tampilan list transaksi di bot tetap menggunakan layout baru yang lebih bersih."
   ],
   "enhancements": [
-    "Fitur Hapus Transaksi kini tersedia langsung di Dashboard (Edit Transaksi).",
-    "Tombol Keyboard Bot: 'Hapus' diganti dengan 'Hari Ini' untuk akses cepat laporan harian.",
-    "Menghapus perintah /summary dan /hapus yang sudah tidak relevan (pindah ke Dashboard)."
+    "Fitur Hapus Transaksi tetap tersedia di Dashboard (Edit Transaksi).",
+    "Tombol Keyboard Bot: 'Hari Ini' untuk akses cepat laporan harian."
   ]
 }

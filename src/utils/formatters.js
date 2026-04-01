@@ -43,26 +43,12 @@ function formatDashboardMessage() {
   return { text, replyMarkup: { inline_keyboard: [INLINE_DASHBOARD] } };
 }
 
-function formatHistory(transactions, page, hasNextPage, offset) {
-  let text = `<b>Histori Transaksi (Hal ${page})</b>\n\n`;
-  transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '+' : '-';
-    const num = offset + index + 1;
-    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `${t.note} (${t.category})` : `${t.category}`;
-    text += `<i>${label}</i>\n\n`;
-  });
-
-  const inlineKeyboard = [];
-  const navigationRow = [];
-
-  if (page > 1) navigationRow.push({ text: '<< Sebelumnya', callback_data: `hist_${page - 1}` });
-  if (hasNextPage) navigationRow.push({ text: 'Berikutnya >>', callback_data: `hist_${page + 1}` });
-
-  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-  inlineKeyboard.push(INLINE_DASHBOARD);
-
-  return { text, replyMarkup: { inline_keyboard: inlineKeyboard } };
+function formatSummary(totalIncome, totalExpense, balance) {
+  const text = `<b>Ringkasan Keuangan</b>\n\n` +
+    `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
+    `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
+    `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
+  return { text, replyMarkup: { inline_keyboard: [INLINE_DASHBOARD] } };
 }
 
 function formatToday(totalIncome, totalExpense, transactions, page, hasNextPage, offset) {
@@ -167,7 +153,7 @@ module.exports = {
   formatDenyMessage,
   formatStartMessage,
   formatDashboardMessage,
-  formatHistory,
+  formatSummary,
   formatToday,
   formatReminder,
   formatTransactionAdded,
