@@ -37,11 +37,25 @@ async function handleText(ctx, message) {
     return handleSummary(ctx);
   } else if (text === '/history') {
     return handleHistory(ctx, 1);
-  } else if (text === '/today') {
+  } else if (text === '/today' || text === '📅 Hari Ini') {
     return handleToday(ctx, 1);
-  } else if (text.startsWith('/delete')) {
+  } else if (text.startsWith('/delete') || text === '🗑 Hapus') {
     await multiDeleteState.clearMultiDelete(ctx.userId);
     return handleDelete(ctx, 1);
+  } else if (text === '➕ Catat') {
+    const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
+      `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
+      `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
+      `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
+    return telegramService.sendMessage(ctx.server, ctx.chatId, addText, {
+      force_reply: true,
+      input_field_placeholder: '+/- Nominal Keterangan'
+    });
+  } else if (text === '🔔 Reminder') {
+    // Forward to callbackHandler equivalent logic or handle directly
+    // Wait, how do we show the reminder menu? We don't have a direct function exported in textHandler that formats the reminder menu.
+    // Let's require userService and send it. We'll do it right below.
+    return handleReminderMenu(ctx);
   }
 
   // If not a command, try to parse as transaction
@@ -51,6 +65,13 @@ async function handleText(ctx, message) {
 // ---------------------------------------------------------
 // Command Handlers
 // ---------------------------------------------------------
+
+async function handleReminderMenu(ctx) {
+  const isEnabled = ctx.user ? ctx.user.reminder_enabled : false;
+  const currentHour = ctx.user ? ctx.user.reminder_hour : null;
+  const { text, replyMarkup } = formatters.formatReminder(isEnabled, currentHour);
+  return telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
+}
 
 async function handleStart(ctx, name) {
   const { text, replyMarkup } = formatters.formatStartMessage(name);
@@ -101,9 +122,8 @@ async function handleToday(ctx, page = 1) {
 
     if (!transactions || transactions.length === 0) {
       const msg = page > 1 ? 'Tidak ada data lagi di halaman ini.' : 'Belum ada transaksi hari ini.';
-      const replyMarkup = { inline_keyboard: formatters.getMainMenu() };
-      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg, replyMarkup);
-      return telegramService.sendMessage(ctx.server, ctx.chatId, msg, replyMarkup);
+      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
+      return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
     }
 
     const { text, replyMarkup } = formatters.formatToday(totalIncome, totalExpense, transactions, page, hasNextPage, offset);
@@ -127,9 +147,8 @@ async function handleDelete(ctx, page = 1) {
 
     if (!transactions || transactions.length === 0) {
       const msg = page > 1 ? 'Tidak ada transaksi lagi di halaman ini.' : 'Belum ada data transaksi yang bisa dihapus.';
-      const replyMarkup = { inline_keyboard: formatters.getMainMenu() };
-      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg, replyMarkup);
-      return telegramService.sendMessage(ctx.server, ctx.chatId, msg, replyMarkup);
+      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
+      return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
     }
 
     const selectedIds = await multiDeleteState.getMultiDelete(ctx.userId);

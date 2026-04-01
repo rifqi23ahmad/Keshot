@@ -6,17 +6,19 @@ if (miniappUrl.endsWith('/webhook')) miniappUrl = miniappUrl.slice(0, -8);
 if (miniappUrl.endsWith('/')) miniappUrl = miniappUrl.slice(0, -1);
 miniappUrl = `${miniappUrl}/app/index.html`;
 
-const MAIN_MENU = [
-  [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
-  [{ text: '➕ Catat', callback_data: 'cmd_add' }],
-  [{ text: '📊 Summary', callback_data: 'cmd_summary' }, { text: '🗑 Hapus', callback_data: 'cmd_delete' }],
-  [{ text: '📅 Hari Ini', callback_data: 'cmd_today' }, { text: '📜 Histori', callback_data: 'cmd_history' }],
-  [{ text: '🔔 Reminder', callback_data: 'cmd_reminder' }]
-];
+const PERSISTENT_KEYBOARD = {
+  keyboard: [
+    [{ text: '📱 Buka Dashboard', web_app: { url: miniappUrl } }],
+    [{ text: '➕ Catat' }, { text: '🔔 Reminder' }]
+  ],
+  resize_keyboard: true,
+  is_persistent: true
+};
 
 function getMainMenu() {
-  return MAIN_MENU;
+  return PERSISTENT_KEYBOARD.keyboard;
 }
+
 
 function formatDenyMessage() {
   const groupLink = process.env.REQUIRED_GROUP_LINK || "https://t.me/KeshotFeedback";
@@ -34,7 +36,7 @@ function formatStartMessage(name) {
     `➕ Pendapatan: <code>+50000 Gaji</code>\n` +
     `➖ Pengeluaran: <code>-20000 Makan siang</code>\n\n` +
     `Anda juga bisa menggunakan menu di bawah ini:`;
-  return { text, replyMarkup: { inline_keyboard: MAIN_MENU } };
+  return { text, replyMarkup: PERSISTENT_KEYBOARD };
 }
 
 function formatSummary(totalIncome, totalExpense, balance) {
@@ -42,7 +44,7 @@ function formatSummary(totalIncome, totalExpense, balance) {
     `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
     `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
     `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
-  return { text, replyMarkup: { inline_keyboard: MAIN_MENU } };
+  return { text, replyMarkup: PERSISTENT_KEYBOARD };
 }
 
 function formatHistory(transactions, page, hasNextPage, offset) {
@@ -62,7 +64,6 @@ function formatHistory(transactions, page, hasNextPage, offset) {
   if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `hist_${page + 1}` });
 
   if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-  inlineKeyboard.push(...MAIN_MENU);
 
   return { text, replyMarkup: { inline_keyboard: inlineKeyboard } };
 }
@@ -87,7 +88,6 @@ function formatToday(totalIncome, totalExpense, transactions, page, hasNextPage,
   if (hasNextPage) navigationRow.push({ text: 'Berikutnya ➡️', callback_data: `today_${page + 1}` });
 
   if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-  inlineKeyboard.push(...MAIN_MENU);
 
   return { text, replyMarkup: { inline_keyboard: inlineKeyboard } };
 }
@@ -162,7 +162,7 @@ function formatReminder(isEnabled, currentHour) {
 function formatTransactionAdded(parsedText) {
   const typeLabel = parsedText.type === 'income' ? 'Pemasukan' : 'Pengeluaran';
   const text = `✅ ${typeLabel} tercatat\n\n* Rp${parsedText.amount.toLocaleString('id-ID')} (${parsedText.category})`;
-  return { text, replyMarkup: { inline_keyboard: MAIN_MENU } };
+  return { text, replyMarkup: PERSISTENT_KEYBOARD };
 }
 
 function formatScanResult(result) {
