@@ -8,7 +8,7 @@ miniappUrl = `${miniappUrl}/app/index.html`;
 
 const PERSISTENT_KEYBOARD = {
   keyboard: [
-    [{ text: 'Hapus' }, { text: 'Reminder' }]
+    [{ text: 'Hari Ini' }, { text: 'Reminder' }]
   ],
   resize_keyboard: true,
   is_persistent: true
@@ -43,22 +43,14 @@ function formatDashboardMessage() {
   return { text, replyMarkup: { inline_keyboard: [INLINE_DASHBOARD] } };
 }
 
-function formatSummary(totalIncome, totalExpense, balance) {
-  const text = `<b>Ringkasan Keuangan</b>\n\n` +
-    `Total Pemasukan: Rp${totalIncome.toLocaleString('id-ID')}\n` +
-    `Total Pengeluaran: Rp${totalExpense.toLocaleString('id-ID')}\n\n` +
-    `<b>Saldo: Rp${balance.toLocaleString('id-ID')}</b>`;
-  return { text, replyMarkup: { inline_keyboard: [INLINE_DASHBOARD] } };
-}
-
 function formatHistory(transactions, page, hasNextPage, offset) {
   let text = `<b>Histori Transaksi (Hal ${page})</b>\n\n`;
   transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '(+)' : '(-)';
+    const symbol = t.type === 'income' ? '+' : '-';
     const num = offset + index + 1;
     text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ ${label}\n\n`;
+    const label = t.note ? `${t.note} (${t.category})` : `${t.category}`;
+    text += `<i>${label}</i>\n\n`;
   });
 
   const inlineKeyboard = [];
@@ -79,11 +71,11 @@ function formatToday(totalIncome, totalExpense, transactions, page, hasNextPage,
   text += `<b>Pengeluaran:</b> Rp${totalExpense.toLocaleString('id-ID')}\n`;
   text += `-----------------\n\n`;
   transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '(+)' : '(-)';
+    const symbol = t.type === 'income' ? '+' : '-';
     const num = offset + index + 1;
     text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ ${label}\n\n`;
+    const label = t.note ? `${t.note} (${t.category})` : `${t.category}`;
+    text += `<i>${label}</i>\n\n`;
   });
 
   const inlineKeyboard = [];
@@ -94,43 +86,6 @@ function formatToday(totalIncome, totalExpense, transactions, page, hasNextPage,
 
   if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
   inlineKeyboard.push(INLINE_DASHBOARD);
-
-  return { text, replyMarkup: { inline_keyboard: inlineKeyboard } };
-}
-
-function formatDeleteSelection(transactions, selectedIds, page, hasNextPage, offset) {
-  let text = `<b>Pilih transaksi yang ingin dihapus (Hal ${page}):</b>\n<i>(Klik angka di tombol bawah untuk menandai)</i>\n\n`;
-  const row1 = [];
-  const row2 = [];
-
-  transactions.forEach((t, index) => {
-    const symbol = t.type === 'income' ? '(+)' : '(-)';
-    const num = offset + index + 1;
-    text += `<b>${num}.</b> ${symbol} Rp${t.amount.toLocaleString('id-ID')}\n`;
-    const label = t.note ? `<i>${t.note}</i> (${t.category})` : `<i>${t.category}</i>`;
-    text += `     └ ${label}\n\n`;
-
-    const isChecked = selectedIds.has(t.id);
-    const checkBox = isChecked ? '[x]' : '[ ]';
-    const btn = { text: `${checkBox} ${num}`, callback_data: `addel_${t.id}_pg${page}` };
-
-    if (index < 5) row1.push(btn);
-    else row2.push(btn);
-  });
-
-  const inlineKeyboard = [];
-  if (row1.length > 0) inlineKeyboard.push(row1);
-  if (row2.length > 0) inlineKeyboard.push(row2);
-
-  const navigationRow = [];
-  if (page > 1) navigationRow.push({ text: '<< Sebelumnya', callback_data: `delpg_${page - 1}` });
-  if (hasNextPage) navigationRow.push({ text: 'Berikutnya >>', callback_data: `delpg_${page + 1}` });
-  if (navigationRow.length > 0) inlineKeyboard.push(navigationRow);
-
-  const actionRow = [];
-  if (selectedIds.size > 0) actionRow.push({ text: `Hapus (${selectedIds.size})`, callback_data: 'mdel_confirm' });
-  actionRow.push({ text: 'Batal', callback_data: 'mdel_cancel' });
-  inlineKeyboard.push(actionRow);
 
   return { text, replyMarkup: { inline_keyboard: inlineKeyboard } };
 }
@@ -212,10 +167,8 @@ module.exports = {
   formatDenyMessage,
   formatStartMessage,
   formatDashboardMessage,
-  formatSummary,
   formatHistory,
   formatToday,
-  formatDeleteSelection,
   formatReminder,
   formatTransactionAdded,
   formatScanResult

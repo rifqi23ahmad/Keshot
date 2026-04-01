@@ -29,47 +29,12 @@ async function handleCallback(ctx, callbackQuery) {
   }
 
   // 2. Requires User Instance Check
-  // The context might already have user populated by the router. 
-  // Wait, the router must have populated `ctx.user` and `ctx.userId` before handing over here!
   if (!ctx.userId) {
     return telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, '❌ Akses ditolak.');
   }
 
-  // ==== MULTI DEL DOMAIN ====
-  if (data && data.startsWith('addel_')) {
-    const parts = data.split('_');
-    const transactionId = parts[1];
-    const pageStr = parts[2] ? parts[2].replace('pg', '') : '1';
-    const page = parseInt(pageStr, 10) || 1;
-
-    await multiDeleteState.toggleMultiDelete(ctx.userId, transactionId);
-
-    await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, '');
-    return textHandler.handleDelete(ctx, page);
-
-  } else if (data === 'mdel_confirm') {
-    const selected = await multiDeleteState.getMultiDelete(ctx.userId);
-    if (!selected || selected.size === 0) {
-      return telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, 'Pilih minimal 1 transaksi!');
-    }
-
-    try {
-      const { deletedCount } = await transactionService.deleteTransactions(ctx.userId, selected);
-      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, `✅ ${deletedCount} transaksi berhasil dihapus.`);
-      await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, `✅ <i>${deletedCount} transaksi berhasil dihapus!</i>`, { inline_keyboard: formatters.getMainMenu() });
-    } catch (e) {
-      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, '❌ Gagal menghapus transaksi.');
-      await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, '❌ <i>Gagal menghapus transaksi.</i>', { inline_keyboard: formatters.getMainMenu() });
-    }
-    await multiDeleteState.clearMultiDelete(ctx.userId);
-
-  } else if (data === 'mdel_cancel') {
-    await multiDeleteState.clearMultiDelete(ctx.userId);
-    await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, 'Dibatalkan');
-    await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, '<i>Aksi hapus dibatalkan.</i>', { inline_keyboard: formatters.getMainMenu() });
-
   // ==== OCR DOMAIN ====
-  } else if (data === 'ocr_cancel') {
+  if (data === 'ocr_cancel') {
     await ocrStateStore.clearOcrState(ctx.telegramId);
     await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, 'Dibatalkan');
     await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, '<i>Scan struk dibatalkan.</i>', { inline_keyboard: formatters.getMainMenu() });
@@ -118,7 +83,6 @@ async function handleCallback(ctx, callbackQuery) {
     
     const merchantStr = state.merchant === 'generic' ? '' : ` ${state.merchant}`;
     const opSign = state.type === 'income' ? '+' : '-';
-    // User edits as text based format e.g. -50000 Merchant dokumen scan
     const editText = `${opSign}${state.total}${merchantStr} dokumen scan`;
     
     await ocrStateStore.clearOcrState(ctx.telegramId);
@@ -127,13 +91,6 @@ async function handleCallback(ctx, callbackQuery) {
     await telegramService.editMessageReplyMarkup(ctx.server, ctx.chatId, ctx.messageId, null);
 
   // ==== PAGINATION DOMAIN ====
-  } else if (data && data.startsWith('delpg_')) {
-    const page = parseInt(data.replace('delpg_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      await textHandler.handleDelete(ctx, page);
-      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, `Halaman ${page}`);
-    }
-
   } else if (data && data.startsWith('hist_')) {
     const page = parseInt(data.replace('hist_', ''), 10);
     if (!isNaN(page) && page > 0) {
@@ -142,10 +99,10 @@ async function handleCallback(ctx, callbackQuery) {
     }
 
   } else if (data && data.startsWith('today_')) {
-    const page = parseInt(data.replace('today_', ''), 10);
-    if (!isNaN(page) && page > 0) {
-      await textHandler.handleToday(ctx, page);
-      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, `Halaman ${page}`);
+    const pageToday = parseInt(data.replace('today_', ''), 10);
+    if (!isNaN(pageToday) && pageToday > 0) {
+      await textHandler.handleToday(ctx, pageToday);
+      await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id, `Halaman ${pageToday}`);
     }
 
   // ==== REMINDER DOMAIN ====
@@ -171,15 +128,10 @@ async function handleCallback(ctx, callbackQuery) {
   } else if (data && data.startsWith('cmd_')) {
     await telegramService.answerCallbackQuery(ctx.server, callbackQuery.id);
 
-    if (data === 'cmd_summary') {
-      await textHandler.handleSummary(ctx);
-    } else if (data === 'cmd_today') {
+    if (data === 'cmd_today') {
       await textHandler.handleToday(ctx, 1);
     } else if (data === 'cmd_history') {
       await textHandler.handleHistory(ctx, 1);
-    } else if (data === 'cmd_delete') {
-      await multiDeleteState.clearMultiDelete(ctx.userId);
-      await textHandler.handleDelete(ctx, 1);
     } else if (data === 'cmd_reminder') {
       const { text, replyMarkup } = formatters.formatReminder(ctx.user.reminder_enabled, ctx.user.reminder_hour);
       await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageId, text, replyMarkup);

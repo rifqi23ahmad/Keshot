@@ -3,8 +3,6 @@ const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
 const pLimitModule = require('p-limit');
 const pLimit = pLimitModule.default || pLimitModule;
-
-// Max 2 concurrent OCR jobs to save memory
 const limitPool = pLimit(2);
 const TIMEOUT_MS = 4000;
 

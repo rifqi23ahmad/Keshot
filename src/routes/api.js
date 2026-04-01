@@ -286,6 +286,42 @@ async function apiRoutes(server, options) {
       return reply.code(500).send({ error: 'Internal error' });
     }
   });
+
+  // Delete Transaction by ID
+  server.delete('/transactions/:id', async (request, reply) => {
+    const { id } = request.params;
+    const { telegramId } = request.query;
+
+    if (!telegramId) return reply.code(400).send({ error: 'telegramId required' });
+    
+    try {
+      const [isMember, userRes] = await Promise.all([
+        isGroupMember(telegramId),
+        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).maybeSingle()
+      ]);
+
+      if (!isMember) return reply.code(403).send({ error: 'Akses Ditolak' });
+      if (userRes.error || !userRes.data) return reply.code(404).send({ error: 'User not found' });
+
+      // Cek apakah transaksi ada dan milik user
+      const { data: tx, error: txError } = await supabase.from('transactions').select('*').eq('id', id).maybeSingle();
+      if (txError || !tx) return reply.code(404).send({ error: 'Transaksi tidak ditemukan' });
+
+      if (tx.user_id !== userRes.data.id) return reply.code(403).send({ error: 'Akses ditolak' });
+
+      const { error: deleteError } = await supabase.from('transactions').delete().eq('id', id);
+      
+      if (deleteError) {
+         server.log.error(deleteError);
+         return reply.code(500).send({ error: 'Database delete failed' });
+      }
+
+      return reply.send({ success: true, message: 'Transaksi berhasil dihapus' });
+    } catch (err) {
+      server.log.error(err);
+      return reply.code(500).send({ error: 'Internal error' });
+    }
+  });
 }
 
 module.exports = apiRoutes;

@@ -213,6 +213,57 @@ const WebAppActions = {
             saveBtn.textContent = 'Simpan';
             saveBtn.disabled = false;
         }
+    },
+
+    deleteTransaction: async () => {
+        if (!currentEditId) return;
+
+        const telegramId = tg.initDataUnsafe?.user?.id;
+        if (!telegramId) return;
+
+        tg.showConfirm('Apakah Anda yakin ingin menghapus transaksi ini?', async (confirmed) => {
+            if (!confirmed) return;
+
+            const delBtn = document.getElementById('btnDelete');
+            const originalText = delBtn.textContent;
+            delBtn.textContent = 'Menghapus...';
+            delBtn.disabled = true;
+
+            try {
+                const res = await fetch(`/api/transactions/${currentEditId}?telegramId=${telegramId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    tg.showAlert(data.error || 'Gagal menghapus transaksi.');
+                    return;
+                }
+
+                // Invalidate caches
+                clearLocalStorageCache(telegramId);
+
+                WebAppActions.closeEditModal();
+
+                // Reload current view
+                if (currentView === 'history') {
+                    loadHistoryData();
+                }
+                fetchDashboardData(telegramId);
+
+                // Small toast/notification
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            } catch (e) {
+                console.error(e);
+                tg.showAlert('Terjadi kesalahan koneksi.');
+            } finally {
+                if (delBtn) {
+                    delBtn.textContent = originalText;
+                    delBtn.disabled = false;
+                }
+            }
+        });
     }
 };
 

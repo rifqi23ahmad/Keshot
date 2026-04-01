@@ -151,6 +151,9 @@
                 <label>Catatan (Opsional)</label>
                 <input type="text" id="editNote" class="form-input" placeholder="Rincian...">
             </div>
+            
+            <button class="btn-delete" id="btnDelete" onclick="WebAppActions.deleteTransaction()">Hapus Transaksi</button>
+            
             <div class="modal-actions">
                 <button class="btn-cancel" onclick="WebAppActions.closeEditModal()">Batal</button>
                 <button class="btn-save" id="btnSaveEdit" onclick="WebAppActions.saveEdit()">Simpan</button>

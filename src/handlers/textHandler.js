@@ -1,6 +1,5 @@
 const telegramService = require('../services/telegramService');
 const transactionService = require('../services/transactionService');
-const multiDeleteState = require('../state/multiDeleteState');
 const formatters = require('../utils/formatters');
 const { parseTransaction } = require('../utils/parser');
 
@@ -33,15 +32,10 @@ async function handleText(ctx, message) {
   // Commands Routing
   if (text === '/start') {
     return handleStart(ctx, message.from.first_name || 'User');
-  } else if (text === '/summary') {
-    return handleSummary(ctx);
   } else if (text === '/history') {
     return handleHistory(ctx, 1);
   } else if (text === '/today' || text === 'Hari Ini') {
     return handleToday(ctx, 1);
-  } else if (text.startsWith('/delete') || text === 'Hapus') {
-    await multiDeleteState.clearMultiDelete(ctx.userId);
-    return handleDelete(ctx, 1);
   } else if (text === 'Reminder') {
     return handleReminderMenu(ctx);
   }
@@ -67,17 +61,6 @@ async function handleStart(ctx, name) {
 
   const dashMenu = formatters.formatDashboardMessage();
   await telegramService.sendMessage(ctx.server, ctx.chatId, dashMenu.text, dashMenu.replyMarkup);
-}
-
-async function handleSummary(ctx) {
-  try {
-    const { totalIncome, totalExpense, balance } = await transactionService.getSummary(ctx.userId);
-    const { text, replyMarkup } = formatters.formatSummary(totalIncome, totalExpense, balance);
-    await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
-  } catch (error) {
-    ctx.server.log.error(error, 'handleSummary DB error');
-    await telegramService.sendMessage(ctx.server, ctx.chatId, '❌ Gagal memuat ringkasan.');
-  }
 }
 
 async function handleHistory(ctx, page = 1) {
@@ -132,32 +115,6 @@ async function handleToday(ctx, page = 1) {
   }
 }
 
-async function handleDelete(ctx, page = 1) {
-  try {
-    const { transactions, hasNextPage, offset } = await transactionService.getHistory(ctx.userId, page);
-
-    if (!transactions || transactions.length === 0) {
-      const msg = page > 1 ? 'Tidak ada transaksi lagi di halaman ini.' : 'Belum ada data transaksi yang bisa dihapus.';
-      if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
-      return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
-    }
-
-    const selectedIds = await multiDeleteState.getMultiDelete(ctx.userId);
-    const { text, replyMarkup } = formatters.formatDeleteSelection(transactions, selectedIds, page, hasNextPage, offset);
-
-    if (ctx.messageIdToEdit) {
-      await telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, text, replyMarkup);
-    } else {
-      await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
-    }
-  } catch (error) {
-    ctx.server.log.error(error, 'handleDelete DB error');
-    const msg = '❌ Gagal memuat transaksi.';
-    if (ctx.messageIdToEdit) return telegramService.editMessageText(ctx.server, ctx.chatId, ctx.messageIdToEdit, msg);
-    return telegramService.sendMessage(ctx.server, ctx.chatId, msg);
-  }
-}
-
 async function handleTransaction(ctx, text) {
   const parsed = parseTransaction(text);
 
@@ -186,9 +143,7 @@ async function handleTransaction(ctx, text) {
 module.exports = {
   handleText,
   handleStart,
-  handleSummary,
   handleHistory,
   handleToday,
-  handleDelete,
   handleTransaction
 };

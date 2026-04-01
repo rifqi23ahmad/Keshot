@@ -516,7 +516,20 @@ body {
     color: var(--button-text-color);
 }
 
-.btn-cancel:active, .btn-save:active {
+.btn-delete {
+    background: transparent;
+    color: var(--danger-color);
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn-cancel:active, .btn-save:active, .btn-delete:active {
     opacity: 0.8;
     transform: scale(0.98);
 }
