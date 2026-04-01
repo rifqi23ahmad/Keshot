@@ -194,12 +194,8 @@ async function handleCallback(ctx, callbackQuery) {
         force_reply: true,
         input_field_placeholder: '+/- Nominal Keterangan'
       });
-    } else if (data === 'cmd_show_menu') {
+    } else if (data === 'cmd_close_inline') {
       await telegramService.deleteMessage(ctx.server, ctx.chatId, ctx.messageId);
-      await telegramService.sendMessage(ctx.server, ctx.chatId, '🎛 Keyboard bawah dimunculkan.', { replyMarkup: formatters.PERSISTENT_KEYBOARD });
-    } else if (data === 'cmd_hide_menu') {
-      await telegramService.deleteMessage(ctx.server, ctx.chatId, ctx.messageId);
-      await telegramService.sendMessage(ctx.server, ctx.chatId, '🔕 Keyboard disembunyikan.\n\nKirim /menu untuk memunculkannya kembali sewaktu-waktu.', { replyMarkup: { remove_keyboard: true } });
     }
   }
 }

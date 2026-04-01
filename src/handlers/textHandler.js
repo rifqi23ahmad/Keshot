@@ -37,26 +37,12 @@ async function handleText(ctx, message) {
     return handleSummary(ctx);
   } else if (text === '/history') {
     return handleHistory(ctx, 1);
-  } else if (text === '/today' || text === '📅 Hari Ini') {
+  } else if (text === '/today' || text === 'Hari Ini') {
     return handleToday(ctx, 1);
-  } else if (text === '/menu') {
-    return handleMenuCommand(ctx);
-  } else if (text.startsWith('/delete') || text === '🗑 Hapus') {
+  } else if (text.startsWith('/delete') || text === 'Hapus') {
     await multiDeleteState.clearMultiDelete(ctx.userId);
     return handleDelete(ctx, 1);
-  } else if (text === '➕ Catat') {
-    const addText = `<b>Cara Menambah Transaksi</b>\n\n` +
-      `Ketik nominal dan keterangan seperti contoh berikut:\n\n` +
-      `🟢 <b>Pemasukan:</b>\n<code>+50000 Gaji</code>\n\n` +
-      `🔴 <b>Pengeluaran:</b>\n<code>-20000 Makan siang</code>`;
-    return telegramService.sendMessage(ctx.server, ctx.chatId, addText, {
-      force_reply: true,
-      input_field_placeholder: '+/- Nominal Keterangan'
-    });
-  } else if (text === '🔔 Reminder') {
-    // Forward to callbackHandler equivalent logic or handle directly
-    // Wait, how do we show the reminder menu? We don't have a direct function exported in textHandler that formats the reminder menu.
-    // Let's require userService and send it. We'll do it right below.
+  } else if (text === 'Reminder') {
     return handleReminderMenu(ctx);
   }
 
@@ -75,18 +61,10 @@ async function handleReminderMenu(ctx) {
   return telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
 }
 
-async function handleMenuCommand(ctx) {
-  const text = `🎛 <b>Menu Utama Keshot</b>\n\nSilakan pilih opsi di bawah ini untuk mengontrol Keyboard Bawah, atau langsung buka Dashboard via tombol Web App (garansi data sinkron).`;
-  const replyMarkup = {
-    inline_keyboard: [
-      [{ text: '📱 Buka Dashboard', web_app: { url: formatters.miniappUrl } }],
-      [{ text: '🔽 Munculkan Keyboard', callback_data: 'cmd_show_menu' }, { text: '🔼 Sembunyikan', callback_data: 'cmd_hide_menu' }]
-    ]
-  };
-  await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
-}
-
 async function handleStart(ctx, name) {
+  // Send the persistent keyboard first with a silent/quick message
+  await telegramService.sendMessage(ctx.server, ctx.chatId, 'Menyiapkan ruang kerja Keshot...', { replyMarkup: formatters.PERSISTENT_KEYBOARD });
+  
   const { text, replyMarkup } = formatters.formatStartMessage(name);
   await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
 }
