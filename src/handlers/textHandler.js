@@ -62,11 +62,11 @@ async function handleReminderMenu(ctx) {
 }
 
 async function handleStart(ctx, name) {
-  // Send the persistent keyboard first with a silent/quick message
-  await telegramService.sendMessage(ctx.server, ctx.chatId, 'Menyiapkan ruang kerja Keshot...', { replyMarkup: formatters.PERSISTENT_KEYBOARD });
-  
   const { text, replyMarkup } = formatters.formatStartMessage(name);
   await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
+
+  const dashMenu = formatters.formatDashboardMessage();
+  await telegramService.sendMessage(ctx.server, ctx.chatId, dashMenu.text, dashMenu.replyMarkup);
 }
 
 async function handleSummary(ctx) {

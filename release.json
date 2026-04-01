@@ -1,0 +1,13 @@
+{
+  "version": "1.0.1",
+  "date": "01 April 2026",
+  "name": "Keshot Update: Optimalisasi Menu & Tampilan Bersih 🚀",
+  "fixes": [
+    "Perbaikan teks pada pesan balasan agar karakter styling (* dan _) tidak bocor.",
+    "Bahasanya diubah agar lebih ramah, tidak kaku lagi saat mengetik /start."
+  ],
+  "enhancements": [
+    "Menu Hapus & Reminder kini dibuat permanen di atas keyboard, mengganti /menu yang lama.",
+    "Tombol Pintasan \"Buka Dashboard\" langsung tersedia di bawah setiap pesan balasan Keshot."
+  ]
+}

@@ -41,6 +41,10 @@ async function start() {
     // Start reminder scheduler (setelah server terkonfigurasi)
     const schedulerService = require('./services/schedulerService');
     schedulerService.start(server);
+    
+    // Check and announce new releases if any
+    const releaseAnnouncer = require('./services/releaseAnnouncer');
+    setImmediate(() => releaseAnnouncer.checkAndAnnounceRelease(server));
 
     const port = process.env.PORT;
     if (!port) throw new Error('PORT environment variable is not set');
