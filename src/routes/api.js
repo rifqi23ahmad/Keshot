@@ -42,7 +42,7 @@ async function apiRoutes(server, options) {
       // 1. Concurrently check membership AND get user ID from Supabase
       const [isMember, userRes] = await Promise.all([
         isGroupMember(telegramId),
-        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).single()
+        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).maybeSingle()
       ]);
 
       if (!isMember) {
@@ -106,7 +106,7 @@ async function apiRoutes(server, options) {
     try {
       const [isMember, userRes] = await Promise.all([
         isGroupMember(telegramId),
-        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).single()
+        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).maybeSingle()
       ]);
 
       if (!isMember) {
@@ -167,7 +167,7 @@ async function apiRoutes(server, options) {
     try {
       const [isMember, userRes] = await Promise.all([
         isGroupMember(telegramId),
-        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).single()
+        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).maybeSingle()
       ]);
 
       if (!isMember) return reply.code(403).send({ error: 'Akses Ditolak' });
@@ -241,14 +241,14 @@ async function apiRoutes(server, options) {
     try {
       const [isMember, userRes] = await Promise.all([
         isGroupMember(telegramId),
-        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).single()
+        supabase.from('users').select('id').eq('telegram_id', telegramId.toString()).maybeSingle()
       ]);
 
       if (!isMember) return reply.code(403).send({ error: 'Akses Ditolak' });
       if (userRes.error || !userRes.data) return reply.code(404).send({ error: 'User not found' });
 
       // Cek umur transaksi
-      const { data: tx, error: txError } = await supabase.from('transactions').select('*').eq('id', id).single();
+      const { data: tx, error: txError } = await supabase.from('transactions').select('*').eq('id', id).maybeSingle();
       if (txError || !tx) return reply.code(404).send({ error: 'Transaksi tidak ditemukan' });
 
       if (tx.user_id !== userRes.data.id) return reply.code(403).send({ error: 'Akses ditolak' });

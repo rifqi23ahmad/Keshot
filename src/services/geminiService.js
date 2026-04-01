@@ -1,6 +1,6 @@
 const rotator = require('../lib/geminiKeyRotator');
 
-const REQUEST_TIMEOUT = 8000; // 8 seconds (Vision AI needs a bit more time)
+const REQUEST_TIMEOUT = 20000; // 20 seconds (Vision AI needs more time for long receipts)
 const MAX_RETRY = 1;
 
 /**
@@ -99,7 +99,8 @@ Pastikan total dan harga item presisi. HANYA OUTPUT JSON murni tanpa markdown ti
 
   const data = await response.json();
   try {
-    const rawJsonString = data.candidates[0].content.parts[0].text;
+    let rawJsonString = data.candidates[0].content.parts[0].text;
+    rawJsonString = rawJsonString.replace(/```json/gi, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(rawJsonString);
     return parsed;
   } catch (err) {

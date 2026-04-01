@@ -25,7 +25,7 @@ async function getUserByTelegramId(telegramId, server) {
     .from('users')
     .select('id, reminder_enabled, reminder_hour, reminder_last_sent')
     .eq('telegram_id', telegramId)
-    .single();
+    .maybeSingle();
 
   if (error || !user) {
     if (server) server.log.error(error, `User not found for telegram_id: ${telegramId}`);
