@@ -39,6 +39,8 @@ async function handleText(ctx, message) {
     return handleHistory(ctx, 1);
   } else if (text === '/today' || text === '📅 Hari Ini') {
     return handleToday(ctx, 1);
+  } else if (text === '/menu') {
+    return handleMenuCommand(ctx);
   } else if (text.startsWith('/delete') || text === '🗑 Hapus') {
     await multiDeleteState.clearMultiDelete(ctx.userId);
     return handleDelete(ctx, 1);
@@ -71,6 +73,17 @@ async function handleReminderMenu(ctx) {
   const currentHour = ctx.user ? ctx.user.reminder_hour : null;
   const { text, replyMarkup } = formatters.formatReminder(isEnabled, currentHour);
   return telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
+}
+
+async function handleMenuCommand(ctx) {
+  const text = `🎛 <b>Menu Utama Keshot</b>\n\nSilakan pilih opsi di bawah ini untuk mengontrol Keyboard Bawah, atau langsung buka Dashboard via tombol Web App (garansi data sinkron).`;
+  const replyMarkup = {
+    inline_keyboard: [
+      [{ text: '📱 Buka Dashboard', web_app: { url: formatters.miniappUrl } }],
+      [{ text: '🔽 Munculkan Keyboard', callback_data: 'cmd_show_menu' }, { text: '🔼 Sembunyikan', callback_data: 'cmd_hide_menu' }]
+    ]
+  };
+  await telegramService.sendMessage(ctx.server, ctx.chatId, text, replyMarkup);
 }
 
 async function handleStart(ctx, name) {

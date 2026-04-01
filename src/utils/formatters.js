@@ -199,6 +199,8 @@ function formatScanResult(result) {
 }
 
 module.exports = {
+  miniappUrl,
+  PERSISTENT_KEYBOARD,
   getMainMenu,
   formatDenyMessage,
   formatStartMessage,

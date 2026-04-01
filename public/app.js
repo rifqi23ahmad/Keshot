@@ -10,6 +10,7 @@ let currentEditId = null;
 
 // Initialize Telegram Web App
 const tg = window.Telegram.WebApp;
+tg.ready();
 
 // Expand to full height
 tg.expand();
